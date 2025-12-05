@@ -7,7 +7,7 @@
   "scripts": {
     "postinstall": "npm install ws @prisma/adapter-neon @neondatabase/serverless",
     "start": "prisma generate && nodemon server.js",
-    "dev": "nodemon server.js"
+    "dev": "node server.js"
   },
   "keywords": [],
   "author": "",
