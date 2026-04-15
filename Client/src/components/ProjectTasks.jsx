@@ -21,7 +21,7 @@ const priorityTexts = {
     HIGH: { background: "bg-emerald-100 dark:bg-emerald-950", prioritycolor: "text-emerald-600 dark:text-emerald-400" },
 };
 
-const ProjectTasks = ({ tasks }) => {
+const ProjectTasks = ({ tasks, onTasksChange }) => {
     const dispatch = useDispatch();
     const navigate = useNavigate();
     const [selectedTasks, setSelectedTasks] = useState([]);
@@ -64,9 +64,13 @@ const ProjectTasks = ({ tasks }) => {
             toast.dismiss();
             toast.success("Task status updated successfully");
             
-            // Refresh the page data by reloading the project
-            // The parent component (ProjectDetails) will handle the refresh
-            window.location.reload();
+            // Update tasks locally — no page reload needed
+            if (onTasksChange) {
+                const updatedTasks = tasks.map(t => 
+                    t.id === taskId ? { ...t, status: newStatus } : t
+                );
+                onTasksChange(updatedTasks);
+            }
         } catch (error) {
             toast.dismiss();
             toast.error(error?.message || "Failed to update task status");
@@ -88,10 +92,13 @@ const ProjectTasks = ({ tasks }) => {
             toast.dismiss();
             toast.success("Tasks deleted successfully");
             
-            // Clear selection and refresh
+            // Update tasks locally — no page reload needed
+            const deletedIds = new Set(selectedTasks);
             setSelectedTasks([]);
-            // Refresh the page data
-            window.location.reload();
+            if (onTasksChange) {
+                const updatedTasks = tasks.filter(t => !deletedIds.has(t.id));
+                onTasksChange(updatedTasks);
+            }
         } catch (error) {
             toast.dismiss();
             toast.error(error?.message || "Failed to delete tasks");

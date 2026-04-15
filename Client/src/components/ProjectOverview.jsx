@@ -1,14 +1,11 @@
-import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Calendar, UsersIcon, FolderOpen } from "lucide-react";
 import { format } from "date-fns";
-import { useSelector, useDispatch } from "react-redux";
-import { useAuth } from "../contexts/AuthContext";
+import { useState } from "react";
+import { useSelector } from "react-redux";
 import CreateProjectDialog from "./CreateProjectDialog";
-import apiClient from "../utils/api.js";
-import { fetchWorkspace } from "../features/workspaceSlice";
 
-const ProjectOverview = () => {
+const ProjectOverview = ({ projects: projectsProp, loading }) => {
     const statusColors = {
         PLANNING: "bg-zinc-200 text-zinc-800 dark:bg-zinc-600 dark:text-zinc-200",
         ACTIVE: "bg-emerald-200 text-emerald-800 dark:bg-emerald-500 dark:text-emerald-900",
@@ -24,80 +21,9 @@ const ProjectOverview = () => {
     };
 
     const currentWorkspace = useSelector((state) => state?.workspace?.currentWorkspace || null);
-    const dispatch = useDispatch();
-    const { isAuthenticated, loading: authLoading } = useAuth();
     const [isDialogOpen, setIsDialogOpen] = useState(false);
-    const [projects, setProjects] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const hasLoadedRef = useRef(false);
-    const prevDialogOpenRef = useRef(false);
 
-    // Main effect to load projects
-    useEffect(() => {
-        const loadProjects = async () => {
-            // Wait for auth to be ready
-            if (authLoading || !isAuthenticated) {
-                setLoading(false);
-                return;
-            }
-
-            if (!currentWorkspace?.id) {
-                setLoading(false);
-                return;
-            }
-
-            // Check if we have a token before making API call
-            const token = apiClient.getAccessToken();
-            if (!token) {
-                setLoading(false);
-                return;
-            }
-
-            // Prevent duplicate calls
-            if (hasLoadedRef.current && currentWorkspace.id === hasLoadedRef.current) {
-                return;
-            }
-
-            setLoading(true);
-            try {
-                const response = await apiClient.getProjects(currentWorkspace.id);
-                setProjects(response.projects || []);
-                hasLoadedRef.current = currentWorkspace.id;
-            } catch (error) {
-                console.error('Failed to fetch projects:', error);
-                // Don't show error if it's an auth error (will redirect)
-                if (error.message && !error.message.includes('token') && !error.message.includes('401')) {
-                    // Only log non-auth errors
-                }
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadProjects();
-    }, [currentWorkspace?.id, isAuthenticated, authLoading]);
-
-    // Refresh when dialog closes (only once)
-    useEffect(() => {
-        // Only refresh if dialog was open and now closed
-        if (prevDialogOpenRef.current && !isDialogOpen && currentWorkspace?.id && isAuthenticated) {
-            const token = apiClient.getAccessToken();
-            if (!token) return;
-
-            const refreshProjects = async () => {
-                try {
-                    const response = await apiClient.getProjects(currentWorkspace.id);
-                    setProjects(response.projects || []);
-                    // Reset the ref so we can load again if needed
-                    hasLoadedRef.current = null;
-                } catch (error) {
-                    console.error('Failed to refresh projects:', error);
-                }
-            };
-            refreshProjects();
-        }
-        prevDialogOpenRef.current = isDialogOpen;
-    }, [isDialogOpen, currentWorkspace?.id, isAuthenticated]);
+    const projects = projectsProp || [];
 
     return currentWorkspace && (
         <div className="bg-white dark:bg-zinc-950 dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-200 rounded-lg overflow-hidden">

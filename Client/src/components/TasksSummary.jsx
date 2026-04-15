@@ -1,53 +1,9 @@
-import { useEffect, useState } from "react";
 import { ArrowRight, Clock, AlertTriangle, User } from "lucide-react";
-import { useSelector } from "react-redux";
-import { useAuth } from "../contexts/AuthContext";
-import apiClient from "../utils/api.js";
 
-export default function TasksSummary() {
+export default function TasksSummary({ tasks: tasksProp, loading, userId }) {
+    const tasks = tasksProp || [];
 
-    const { currentWorkspace } = useSelector((state) => state.workspace);
-    const { user, isAuthenticated, loading: authLoading } = useAuth();
-    const [tasks, setTasks] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    // Get all tasks for all projects in current workspace
-    useEffect(() => {
-        const loadTasks = async () => {
-            // Wait for auth to be ready
-            if (authLoading || !isAuthenticated) {
-                setLoading(false);
-                return;
-            }
-
-            if (!currentWorkspace?.id || !user?.id) {
-                setLoading(false);
-                return;
-            }
-
-            // Check for token
-            const token = apiClient.getAccessToken();
-            if (!token) {
-                setLoading(false);
-                return;
-            }
-
-            setLoading(true);
-            try {
-                // Fetch all tasks assigned to current user
-                const response = await apiClient.getTasks(null, null, user.id);
-                setTasks(response.tasks || []);
-            } catch (error) {
-                console.error('Failed to fetch tasks:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadTasks();
-    }, [currentWorkspace?.id, user?.id, isAuthenticated, authLoading]);
-
-    const myTasks = tasks.filter(i => i.assigneeId === user?.id);
+    const myTasks = tasks.filter(i => i.assigneeId === userId);
     const overdueTasks = tasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== 'DONE');
     const inProgressIssues = tasks.filter(i => i.status === 'IN_PROGRESS');
 
@@ -87,13 +43,17 @@ export default function TasksSummary() {
                             <div className="flex items-center justify-between flex-1">
                                 <h3 className="text-sm font-medium text-gray-800 dark:text-white">{card.title}</h3>
                                 <span className={`inline-block mt-1 px-2 py-1 rounded text-xs font-semibold ${card.color}`}>
-                                    {card.count}
+                                    {loading ? "—" : card.count}
                                 </span>
                             </div>
                         </div>
                     </div>
                     <div className="p-4">
-                        {card.items.length === 0 ? (
+                        {loading ? (
+                            <p className="text-sm text-gray-500 dark:text-zinc-400 text-center py-4">
+                                Loading...
+                            </p>
+                        ) : card.items.length === 0 ? (
                             <p className="text-sm text-gray-500 dark:text-zinc-400 text-center py-4">
                                 No {card.title.toLowerCase()}
                             </p>

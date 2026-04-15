@@ -49,7 +49,7 @@ export default function ProjectSettings({ project, onUpdate }) {
             await apiClient.updateProject(project.id, {
                 name: formData.name.trim(),
                 description: formData.description.trim() || null,
-                status: formData.status,
+                // status is auto-detected based on dates
                 priority: formData.priority,
                 start_date: formData.start_date ? formData.start_date.toISOString() : null,
                 end_date: formData.end_date ? formData.end_date.toISOString() : null,
@@ -120,18 +120,10 @@ export default function ProjectSettings({ project, onUpdate }) {
                     {/* Status & Priority */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                            <label className={labelClasses}>Status</label>
-                            <select 
-                                value={formData.status} 
-                                onChange={(e) => setFormData({ ...formData, status: e.target.value })} 
-                                className={inputClasses}
-                            >
-                                <option value="PLANNING">Planning</option>
-                                <option value="ACTIVE">Active</option>
-                                <option value="ON_HOLD">On Hold</option>
-                                <option value="COMPLETED">Completed</option>
-                                <option value="CANCELLED">Cancelled</option>
-                            </select>
+                            <label className={labelClasses}>Status (Auto-detected)</label>
+                            <div className={inputClasses + " bg-zinc-50 dark:bg-zinc-800/50 cursor-not-allowed text-zinc-500"}>
+                                {formData.status}
+                            </div>
                         </div>
 
                         <div className="space-y-2">

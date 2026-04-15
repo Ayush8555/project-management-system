@@ -263,7 +263,7 @@ export default function ProjectDetail() {
                 <div className="mt-6">
                     {activeTab === "tasks" && (
                         <div className=" dark:bg-zinc-900/40 rounded max-w-6xl">
-                            <ProjectTasks tasks={tasks} />
+                            <ProjectTasks tasks={tasks} onTasksChange={(updatedTasks) => setTasks(updatedTasks)} />
                         </div>
                     )}
                     {activeTab === "analytics" && (

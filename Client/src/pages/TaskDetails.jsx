@@ -2,15 +2,17 @@ import { format } from "date-fns";
 import toast from "react-hot-toast";
 import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { CalendarIcon, MessageCircle, PenIcon } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { CalendarIcon, MessageCircle, PenIcon, Edit2Icon, ArrowLeftIcon } from "lucide-react";
 import apiClient from "../utils/api.js";
+import EditTaskDialog from "../components/EditTaskDialog";
 
 const TaskDetails = () => {
 
     const [searchParams] = useSearchParams();
     const projectId = searchParams.get("projectId");
     const taskId = searchParams.get("taskId");
+    const navigate = useNavigate();
 
     const { user } = useAuth();
     const [task, setTask] = useState(null);
@@ -18,6 +20,7 @@ const TaskDetails = () => {
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState("");
     const [loading, setLoading] = useState(true);
+    const [isEditOpen, setIsEditOpen] = useState(false);
 
     const fetchComments = async () => {
         if (!taskId) return;
@@ -99,7 +102,20 @@ const TaskDetails = () => {
     if (!task) return <div className="text-red-500 px-4 py-6">Task not found.</div>;
 
     return (
-        <div className="flex flex-col-reverse lg:flex-row gap-6 sm:p-4 text-gray-900 dark:text-zinc-100 max-w-6xl mx-auto">
+        <div className="flex flex-col gap-4 max-w-6xl mx-auto">
+            {/* Header / Back Button */}
+            <div className="flex items-center gap-2 text-gray-900 dark:text-zinc-100">
+                <button 
+                    onClick={() => navigate(-1)} 
+                    className="p-2 rounded hover:bg-gray-200 dark:hover:bg-zinc-800 transition-colors"
+                    title="Go Back"
+                >
+                    <ArrowLeftIcon className="size-5" />
+                </button>
+                <h1 className="text-xl font-medium">Task Details</h1>
+            </div>
+
+            <div className="flex flex-col-reverse lg:flex-row gap-6 sm:p-4 text-gray-900 dark:text-zinc-100">
             {/* Left: Comments / Chatbox */}
             <div className="w-full lg:w-2/3">
                 <div className="p-5 rounded-md  border border-gray-300 dark:border-zinc-800  flex flex-col lg:h-[80vh]">
@@ -156,7 +172,16 @@ const TaskDetails = () => {
                 {/* Task Info */}
                 <div className="p-5 rounded-md bg-white dark:bg-zinc-900 border border-gray-300 dark:border-zinc-800 ">
                     <div className="mb-3">
-                        <h1 className="text-lg font-medium text-gray-900 dark:text-zinc-100">{task.title}</h1>
+                        <div className="flex justify-between items-start">
+                            <h1 className="text-lg font-medium text-gray-900 dark:text-zinc-100">{task.title}</h1>
+                            <button 
+                                onClick={() => setIsEditOpen(true)}
+                                className="p-2 rounded hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-500 dark:text-zinc-400"
+                                title="Edit Task"
+                            >
+                                <Edit2Icon className="size-4" />
+                            </button>
+                        </div>
                         <div className="flex flex-wrap gap-2 mt-2">
                             <span className="px-2 py-0.5 rounded bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-300 text-xs">
                                 {task.status}
@@ -208,6 +233,18 @@ const TaskDetails = () => {
                         </div>
                     </div>
                 )}
+            </div>
+            
+            {/* Edit Task Dialog */}
+            <EditTaskDialog 
+                isOpen={isEditOpen} 
+                setIsOpen={setIsEditOpen} 
+                task={task} 
+                onUpdate={(updatedTask) => {
+                    setTask(updatedTask);
+                    // Also refresh task list if needed via context or forced reload, but local state update is good for now
+                }} 
+            />
             </div>
         </div>
     );

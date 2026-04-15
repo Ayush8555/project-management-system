@@ -1,16 +1,78 @@
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import StatsGrid from '../components/StatsGrid'
 import ProjectOverview from '../components/ProjectOverview'
 import RecentActivity from '../components/RecentActivity'
 import TasksSummary from '../components/TasksSummary'
 import CreateProjectDialog from '../components/CreateProjectDialog'
 import { useAuth } from '../contexts/AuthContext'
+import { useSelector } from 'react-redux'
+import apiClient from '../utils/api.js'
 
 const Dashboard = () => {
 
-    const { user } = useAuth()
+    const { user, isAuthenticated, loading: authLoading } = useAuth()
+    const { currentWorkspace } = useSelector((state) => state.workspace)
     const [isDialogOpen, setIsDialogOpen] = useState(false)
+    const [dashboardData, setDashboardData] = useState(null)
+    const [loading, setLoading] = useState(true)
+    const hasLoadedRef = useRef(false)
+    const prevDialogOpenRef = useRef(false)
+
+    // Single API call for all dashboard data
+    useEffect(() => {
+        const loadDashboard = async () => {
+            if (authLoading || !isAuthenticated) {
+                setLoading(false)
+                return
+            }
+            if (!currentWorkspace?.id) {
+                setLoading(false)
+                return
+            }
+            const token = apiClient.getAccessToken()
+            if (!token) {
+                setLoading(false)
+                return
+            }
+            if (hasLoadedRef.current === currentWorkspace.id) {
+                return
+            }
+
+            setLoading(true)
+            try {
+                const data = await apiClient.getDashboard(currentWorkspace.id)
+                setDashboardData(data)
+                hasLoadedRef.current = currentWorkspace.id
+            } catch (error) {
+                console.error('Failed to load dashboard:', error)
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        loadDashboard()
+    }, [currentWorkspace?.id, isAuthenticated, authLoading])
+
+    // Refresh dashboard when dialog closes (project was created)
+    useEffect(() => {
+        if (prevDialogOpenRef.current && !isDialogOpen && currentWorkspace?.id && isAuthenticated) {
+            const token = apiClient.getAccessToken()
+            if (!token) return
+
+            const refreshDashboard = async () => {
+                try {
+                    const data = await apiClient.getDashboard(currentWorkspace.id)
+                    setDashboardData(data)
+                    hasLoadedRef.current = null
+                } catch (error) {
+                    console.error('Failed to refresh dashboard:', error)
+                }
+            }
+            refreshDashboard()
+        }
+        prevDialogOpenRef.current = isDialogOpen
+    }, [isDialogOpen, currentWorkspace?.id, isAuthenticated])
 
     return (
         <div className='max-w-6xl mx-auto'>
@@ -27,15 +89,29 @@ const Dashboard = () => {
                 <CreateProjectDialog isDialogOpen={isDialogOpen} setIsDialogOpen={setIsDialogOpen} />
             </div>
 
-            <StatsGrid />
+            <StatsGrid
+                stats={dashboardData?.stats}
+                loading={loading}
+                workspaceName={currentWorkspace?.name}
+            />
 
             <div className="grid lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 space-y-8">
-                    <ProjectOverview />
-                    <RecentActivity />
+                    <ProjectOverview
+                        projects={dashboardData?.projects}
+                        loading={loading}
+                    />
+                    <RecentActivity
+                        tasks={dashboardData?.recentTasks}
+                        loading={loading}
+                    />
                 </div>
                 <div>
-                    <TasksSummary />
+                    <TasksSummary
+                        tasks={dashboardData?.myTasks}
+                        loading={loading}
+                        userId={user?.id}
+                    />
                 </div>
             </div>
         </div>

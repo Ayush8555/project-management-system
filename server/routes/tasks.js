@@ -314,7 +314,7 @@ router.post('/', async (req, res) => {
             name: true,
           },
         },
-        comments: [],
+        comments: true,
         _count: {
           select: {
             comments: true,

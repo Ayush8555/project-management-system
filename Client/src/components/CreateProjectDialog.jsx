@@ -40,6 +40,9 @@ const CreateProjectDialog = ({ isDialogOpen, setIsDialogOpen }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         
+        // Prevent duplicate submissions on multiple clicks
+        if (isSubmitting) return;
+        
         if (!currentWorkspace) {
             toast.error('Please select a workspace first');
             return;
@@ -64,7 +67,7 @@ const CreateProjectDialog = ({ isDialogOpen, setIsDialogOpen }) => {
                 description: formData.description.trim() || null,
                 workspaceId: currentWorkspace.id,
                 team_lead: formData.team_lead,
-                status: formData.status,
+                // status is auto-detected by backend based on dates
                 priority: formData.priority,
                 start_date: formData.start_date || null,
                 end_date: formData.end_date || null,
@@ -131,16 +134,12 @@ const CreateProjectDialog = ({ isDialogOpen, setIsDialogOpen }) => {
 
                     {/* Status & Priority */}
                     <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm mb-1">Status</label>
-                            <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value })} className="w-full px-3 py-2 rounded dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 mt-1 text-zinc-900 dark:text-zinc-200 text-sm" >
-                                <option value="PLANNING">Planning</option>
-                                <option value="ACTIVE">Active</option>
-                                <option value="COMPLETED">Completed</option>
-                                <option value="ON_HOLD">On Hold</option>
-                                <option value="CANCELLED">Cancelled</option>
-                            </select>
+                        {/* Status - Auto-calculated */}
+                        {/* Status is automatically determined by dates */
+                        <div className="hidden">
+                            <input type="hidden" name="status" value={formData.status} />
                         </div>
+                        }
 
                         <div>
                             <label className="block text-sm mb-1">Priority</label>

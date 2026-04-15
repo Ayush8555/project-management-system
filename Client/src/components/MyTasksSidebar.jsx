@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { CheckSquareIcon, ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import { useSelector } from 'react-redux';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import apiClient from '../utils/api.js';
 
 function MyTasksSidebar() {
 
-    const user = { id: 'user_1' }
-
+    const { user, isAuthenticated, loading: authLoading } = useAuth();
     const { currentWorkspace } = useSelector((state) => state.workspace);
     const [showMyTasks, setShowMyTasks] = useState(false);
     const [myTasks, setMyTasks] = useState([]);
@@ -26,19 +27,25 @@ function MyTasksSidebar() {
         }
     };
 
-    const fetchUserTasks = () => {
-        const userId = user?.id || '';
-        if (!userId || !currentWorkspace) return;
-        const currentWorkspaceTasks = currentWorkspace.projects.flatMap((project) => {
-            return project.tasks.filter((task) => task?.assignee?.id === userId);
-        });
-
-        setMyTasks(currentWorkspaceTasks);
-    }
-
+    // Fetch tasks via API only when the sidebar is expanded (lazy load)
     useEffect(() => {
-        fetchUserTasks()
-    }, [currentWorkspace])
+        if (!showMyTasks) return;
+        if (authLoading || !isAuthenticated || !user?.id || !currentWorkspace?.id) return;
+
+        const token = apiClient.getAccessToken();
+        if (!token) return;
+
+        const fetchTasks = async () => {
+            try {
+                const response = await apiClient.getTasks(null, null, user.id);
+                setMyTasks(response.tasks || []);
+            } catch (error) {
+                console.error('Failed to fetch my tasks:', error);
+            }
+        };
+
+        fetchTasks();
+    }, [showMyTasks, currentWorkspace?.id, user?.id, isAuthenticated, authLoading]);
 
     return (
         <div className="mt-6 px-3">

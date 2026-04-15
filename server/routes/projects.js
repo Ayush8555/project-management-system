@@ -65,19 +65,6 @@ router.get('/', async (req, res) => {
             slug: true,
           },
         },
-        tasks: {
-          include: {
-            assignee: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
-              },
-            },
-            comments: true,
-          },
-        },
         members: {
           include: {
             user: {
@@ -102,19 +89,7 @@ router.get('/', async (req, res) => {
       },
     });
 
-    // Calculate progress for each project
-    const projectsWithProgress = projects.map((project) => {
-      const totalTasks = project.tasks.length;
-      const completedTasks = project.tasks.filter((t) => t.status === 'DONE').length;
-      const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
-      return {
-        ...project,
-        progress,
-      };
-    });
-
-    res.json({ projects: projectsWithProgress });
+    res.json({ projects });
   } catch (error) {
     console.error('Get projects error:', error);
     res.status(500).json({
@@ -199,19 +174,9 @@ router.get('/:id', async (req, res) => {
                 image: true,
               },
             },
-            comments: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                    image: true,
-                  },
-                },
-              },
-              orderBy: {
-                createdAt: 'desc',
+            _count: {
+              select: {
+                comments: true,
               },
             },
           },
@@ -240,16 +205,8 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    // Calculate progress
-    const totalTasks = project.tasks.length;
-    const completedTasks = project.tasks.filter((t) => t.status === 'DONE').length;
-    const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
     res.json({
-      project: {
-        ...project,
-        progress,
-      },
+      project,
     });
   } catch (error) {
     console.error('Get project error:', error);
@@ -308,92 +265,110 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Create project
-    const project = await prisma.project.create({
-      data: {
-        id: nanoid(),
-        name: name.trim(),
-        description: description?.trim() || null,
-        workspaceId,
-        team_lead,
-        priority: priority || 'MEDIUM',
-        status: (() => {
-          const now = new Date();
-          const start = start_date ? new Date(start_date) : null;
-          const end = end_date ? new Date(end_date) : null;
-
-          if (start && start > now) return 'UPCOMING';
-          if (end && end < now) return 'COMPLETED';
-          if (start && start <= now && end && end >= now) return 'IN_PROGRESS';
-          return 'ACTIVE';
-        })(),
-        start_date: start_date ? new Date(start_date) : null,
-        end_date: end_date ? new Date(end_date) : null,
-        progress: 0,
-      },
-    });
-
-    // Add team lead as project member if not already included
-    const membersToAdd = [{ userId: team_lead, projectId: project.id }];
-
-    // Add other members if provided
-    if (memberIds && Array.isArray(memberIds) && memberIds.length > 0) {
-      const additionalMembers = memberIds
-        .filter((id) => id !== team_lead) // Don't add team lead again
-        .map((userId) => ({
-          userId,
-          projectId: project.id,
-        }));
-
-      membersToAdd.push(...additionalMembers);
+    // Collect all user IDs we need to validate
+    const allUserIds = [team_lead];
+    if (memberIds && Array.isArray(memberIds)) {
+      allUserIds.push(...memberIds);
     }
+    const uniqueUserIds = [...new Set(allUserIds.filter(Boolean))];
 
-    if (membersToAdd.length > 0) {
-      await prisma.projectMember.createMany({
-        data: membersToAdd,
-        skipDuplicates: true,
+    // Validate all user IDs exist in the database
+    const existingUsers = await prisma.user.findMany({
+      where: { id: { in: uniqueUserIds } },
+      select: { id: true },
+    });
+    const existingUserIds = new Set(existingUsers.map(u => u.id));
+
+    // Check team_lead exists
+    if (!existingUserIds.has(team_lead)) {
+      return res.status(400).json({
+        error: 'Team lead user not found',
       });
     }
 
-    // Fetch the complete project with relations
-    const projectWithRelations = await prisma.project.findUnique({
-      where: { id: project.id },
-      include: {
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-          },
+    // Filter memberIds to only valid users
+    const validMemberIds = memberIds
+      ? memberIds.filter(id => existingUserIds.has(id) && id !== team_lead)
+      : [];
+
+    // Create project and members in a transaction
+    const projectWithRelations = await prisma.$transaction(async (tx) => {
+      // Create project
+      const project = await tx.project.create({
+        data: {
+          id: nanoid(),
+          name: name.trim(),
+          description: description?.trim() || null,
+          workspaceId,
+          team_lead,
+          priority: priority || 'MEDIUM',
+          status: (() => {
+            const now = new Date();
+            const start = start_date ? new Date(start_date) : null;
+            const end = end_date ? new Date(end_date) : null;
+
+            if (start && start > now) return 'UPCOMING';
+            if (end && end < now) return 'COMPLETED';
+            if (start && start <= now && end && end >= now) return 'IN_PROGRESS';
+            return 'ACTIVE';
+          })(),
+          start_date: start_date ? new Date(start_date) : null,
+          end_date: end_date ? new Date(end_date) : null,
+          progress: 0,
         },
-        workspace: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
+      });
+
+      // Add team lead + valid members as project members
+      const membersToAdd = [{ userId: team_lead, projectId: project.id }];
+      for (const userId of validMemberIds) {
+        membersToAdd.push({ userId, projectId: project.id });
+      }
+
+      await tx.projectMember.createMany({
+        data: membersToAdd,
+        skipDuplicates: true,
+      });
+
+      // Fetch the complete project with relations
+      return await tx.project.findUnique({
+        where: { id: project.id },
+        include: {
+          owner: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
           },
-        },
-        tasks: [],
-        members: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
+          workspace: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
+          },
+          tasks: true,
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  image: true,
+                },
               },
             },
           },
-        },
-        _count: {
-          select: {
-            tasks: true,
-            members: true,
+          _count: {
+            select: {
+              tasks: true,
+              members: true,
+            },
           },
         },
-      },
+      });
     });
 
     res.status(201).json({

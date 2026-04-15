@@ -3,8 +3,8 @@ import jwt from 'jsonwebtoken';
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'your-access-secret-key-change-in-production';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production';
 
-// Access token expires in 15 minutes
-const ACCESS_TOKEN_EXPIRY = '15m';
+// Access token expires in 7 days (prevents annoying logouts during active work)
+const ACCESS_TOKEN_EXPIRY = '7d';
 // Refresh token expires in 7 days
 const REFRESH_TOKEN_EXPIRY = '7d';
 

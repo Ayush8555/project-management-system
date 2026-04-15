@@ -63,6 +63,29 @@ router.post('/register', async (req, res) => {
       },
     });
 
+    // Check for pending invites
+    const pendingInvites = await prisma.pendingInvite.findMany({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (pendingInvites.length > 0) {
+      const memberships = pendingInvites.map((invite) => ({
+        userId: user.id,
+        workspaceId: invite.workspaceId,
+        role: invite.role,
+      }));
+
+      await prisma.workspaceMember.createMany({
+        data: memberships,
+        skipDuplicates: true,
+      });
+
+      // Delete pending invites
+      await prisma.pendingInvite.deleteMany({
+        where: { email: email.toLowerCase() },
+      });
+    }
+
     // Generate tokens
     const accessToken = generateAccessToken({
       userId: user.id,

@@ -14,7 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",
-    "@prisma/adapter-neon": "^6.19.0",
+    "@prisma/adapter-neon": "^6.19.2",
     "@prisma/client": "^6.19.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
@@ -24,7 +24,7 @@
     "jsonwebtoken": "^9.0.2",
     "nanoid": "^5.1.6",
     "pg": "^8.16.3",
-    "ws": "^8.18.3"
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

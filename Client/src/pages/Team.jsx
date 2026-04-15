@@ -29,25 +29,16 @@ const Team = () => {
 
             setLoading(true);
             try {
-                // Fetch workspace members
-                const workspaceResponse = await apiClient.getWorkspace(currentWorkspace.id);
+                // Fetch all data in parallel — no N+1 loops
+                const [workspaceResponse, projectsResponse, tasksResponse] = await Promise.all([
+                    apiClient.getWorkspace(currentWorkspace.id),
+                    apiClient.getProjects(currentWorkspace.id),
+                    apiClient.getTasks(), // gets all tasks user has access to
+                ]);
+
                 setUsers(workspaceResponse.workspace.members || []);
-
-                // Fetch projects
-                const projectsResponse = await apiClient.getProjects(currentWorkspace.id);
                 setProjects(projectsResponse.projects || []);
-
-                // Get all tasks from all projects
-                const allTasks = [];
-                for (const project of projectsResponse.projects || []) {
-                    try {
-                        const projectResponse = await apiClient.getProject(project.id);
-                        allTasks.push(...(projectResponse.project.tasks || []));
-                    } catch (error) {
-                        console.error(`Failed to fetch tasks for project ${project.id}:`, error);
-                    }
-                }
-                setTasks(allTasks);
+                setTasks(tasksResponse.tasks || []);
             } catch (error) {
                 console.error('Failed to load team data:', error);
             } finally {

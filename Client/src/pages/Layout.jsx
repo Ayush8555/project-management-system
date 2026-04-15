@@ -10,7 +10,7 @@ import { Loader2Icon } from 'lucide-react'
 
 const Layout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-    const { loading } = useSelector((state) => state.workspace)
+    const { loading, workspaces } = useSelector((state) => state.workspace)
     const { isAuthenticated, loading: authLoading } = useAuth()
     const dispatch = useDispatch()
 
@@ -26,8 +26,8 @@ const Layout = () => {
         }
     }, [isAuthenticated, authLoading, dispatch])
 
-    // Show loading while checking auth or loading workspaces
-    if (authLoading || (isAuthenticated && loading)) {
+    // Show loading while checking auth or loading workspaces for the first time
+    if (authLoading || (isAuthenticated && loading && workspaces.length === 0)) {
         return (
             <div className='flex items-center justify-center h-screen bg-white dark:bg-zinc-950'>
                 <Loader2Icon className="size-7 text-blue-500 animate-spin" />

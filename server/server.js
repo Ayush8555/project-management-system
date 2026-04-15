@@ -8,6 +8,8 @@ import projectRoutes from "./routes/projects.js";
 import taskRoutes from "./routes/tasks.js";
 import commentRoutes from "./routes/comments.js";
 import userRoutes from "./routes/users.js";
+import searchRoutes from "./routes/search.js";
+import dashboardRoutes from "./routes/dashboard.js";
 
 dotenv.config();
 
@@ -19,6 +21,8 @@ app.use(cookieParser());
 
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
   "http://localhost:3000",
   "https://project-management-system-two-mu.vercel.app",
   "https://project-management-system-cwxlv9zvi-ayush8555s-projects.vercel.app"
@@ -50,6 +54,8 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/comments", commentRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 const PORT = process.env.PORT || 5009;
 app.listen(PORT, () => {

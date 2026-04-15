@@ -1,44 +1,35 @@
 import { FolderOpen, CheckCircle, Users, AlertTriangle } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useSelector } from "react-redux";
-import { useAuth } from "../contexts/AuthContext";
-import apiClient from "../utils/api.js";
 
-export default function StatsGrid() {
-    const currentWorkspace = useSelector(
-        (state) => state?.workspace?.currentWorkspace || null
-    );
-    const { user, isAuthenticated, loading: authLoading } = useAuth();
-
-    const [stats, setStats] = useState({
+export default function StatsGrid({ stats, loading, workspaceName }) {
+    const data = stats || {
         totalProjects: 0,
         activeProjects: 0,
         completedProjects: 0,
-        myTasks: 0,
-        overdueIssues: 0,
-    });
+        myTasksCount: 0,
+        overdueCount: 0,
+    };
 
     const statCards = [
         {
             icon: FolderOpen,
             title: "Total Projects",
-            value: stats.totalProjects,
-            subtitle: `projects in ${currentWorkspace?.name}`,
+            value: data.totalProjects,
+            subtitle: `projects in ${workspaceName || 'workspace'}`,
             bgColor: "bg-blue-500/10",
             textColor: "text-blue-500",
         },
         {
             icon: CheckCircle,
             title: "Completed Projects",
-            value: stats.completedProjects,
-            subtitle: `of ${stats.totalProjects} total`,
+            value: data.completedProjects,
+            subtitle: `of ${data.totalProjects} total`,
             bgColor: "bg-emerald-500/10",
             textColor: "text-emerald-500",
         },
         {
             icon: Users,
             title: "My Tasks",
-            value: stats.myTasks,
+            value: data.myTasksCount,
             subtitle: "assigned to me",
             bgColor: "bg-purple-500/10",
             textColor: "text-purple-500",
@@ -46,66 +37,12 @@ export default function StatsGrid() {
         {
             icon: AlertTriangle,
             title: "Overdue",
-            value: stats.overdueIssues,
+            value: data.overdueCount,
             subtitle: "need attention",
             bgColor: "bg-amber-500/10",
             textColor: "text-amber-500",
         },
     ];
-
-    useEffect(() => {
-        const loadStats = async () => {
-            // Wait for auth to be ready
-            if (authLoading || !isAuthenticated) return;
-            
-            if (!currentWorkspace?.id || !user?.id) return;
-
-            // Check for token
-            const token = apiClient.getAccessToken();
-            if (!token) return;
-
-            try {
-                // Fetch projects for the workspace
-                const projectsResponse = await apiClient.getProjects(currentWorkspace.id);
-                const projects = projectsResponse.projects || [];
-
-                // Fetch all tasks for the workspace
-                const tasksResponse = await apiClient.getTasks(null, null, user.id);
-                const allTasks = tasksResponse.tasks || [];
-
-                // Get all tasks from all projects
-                const allProjectTasks = [];
-                for (const project of projects) {
-                    try {
-                        const projectResponse = await apiClient.getProject(project.id);
-                        allProjectTasks.push(...(projectResponse.project.tasks || []));
-                    } catch (error) {
-                        console.error(`Failed to fetch tasks for project ${project.id}:`, error);
-                    }
-                }
-
-                const now = new Date();
-                const myTasks = allProjectTasks.filter((t) => t.assigneeId === user.id);
-                const overdueTasks = allProjectTasks.filter(
-                    (t) => t.due_date && new Date(t.due_date) < now && t.status !== 'DONE'
-                );
-
-                setStats({
-                    totalProjects: projects.length,
-                    activeProjects: projects.filter(
-                        (p) => p.status !== "CANCELLED" && p.status !== "COMPLETED"
-                    ).length,
-                    completedProjects: projects.filter((p) => p.status === "COMPLETED").length,
-                    myTasks: myTasks.length,
-                    overdueIssues: overdueTasks.length,
-                });
-            } catch (error) {
-                console.error('Failed to load stats:', error);
-            }
-        };
-
-        loadStats();
-    }, [currentWorkspace?.id, user?.id, isAuthenticated, authLoading]);
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 my-9">
@@ -119,7 +56,7 @@ export default function StatsGrid() {
                                         {title}
                                     </p>
                                     <p className="text-3xl font-bold text-zinc-800 dark:text-white">
-                                        {value}
+                                        {loading ? "—" : value}
                                     </p>
                                     {subtitle && (
                                         <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">

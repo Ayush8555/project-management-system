@@ -1,9 +1,5 @@
-import { useEffect, useState } from "react";
 import { GitCommit, MessageSquare, Clock, Bug, Zap, Square } from "lucide-react";
 import { format } from "date-fns";
-import { useSelector } from "react-redux";
-import { useAuth } from "../contexts/AuthContext";
-import apiClient from "../utils/api.js";
 
 const typeIcons = {
     BUG: { icon: Bug, color: "text-red-500 dark:text-red-400" },
@@ -19,61 +15,8 @@ const statusColors = {
     DONE: "bg-emerald-200 text-emerald-800 dark:bg-emerald-500 dark:text-emerald-900",
 };
 
-const RecentActivity = () => {
-    const [tasks, setTasks] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const { currentWorkspace } = useSelector((state) => state.workspace);
-    const { isAuthenticated, loading: authLoading } = useAuth();
-
-    useEffect(() => {
-        const loadTasks = async () => {
-            // Wait for auth to be ready
-            if (authLoading || !isAuthenticated) {
-                setLoading(false);
-                return;
-            }
-
-            if (!currentWorkspace?.id) {
-                setLoading(false);
-                return;
-            }
-
-            // Check for token
-            const token = apiClient.getAccessToken();
-            if (!token) {
-                setLoading(false);
-                return;
-            }
-
-            setLoading(true);
-            try {
-                // Fetch all projects in workspace
-                const projectsResponse = await apiClient.getProjects(currentWorkspace.id);
-                const projects = projectsResponse.projects || [];
-
-                // Get all tasks from all projects
-                const allTasks = [];
-                for (const project of projects) {
-                    try {
-                        const projectResponse = await apiClient.getProject(project.id);
-                        allTasks.push(...(projectResponse.project.tasks || []));
-                    } catch (error) {
-                        console.error(`Failed to fetch tasks for project ${project.id}:`, error);
-                    }
-                }
-
-                // Sort by updatedAt descending and take first 10
-                allTasks.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-                setTasks(allTasks.slice(0, 10));
-            } catch (error) {
-                console.error('Failed to load recent activity:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadTasks();
-    }, [currentWorkspace?.id, isAuthenticated, authLoading]);
+const RecentActivity = ({ tasks: tasksProp, loading }) => {
+    const tasks = tasksProp || [];
 
     return (
         <div className="bg-white dark:bg-zinc-950 dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 rounded-lg transition-all overflow-hidden">

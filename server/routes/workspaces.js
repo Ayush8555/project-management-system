@@ -49,20 +49,12 @@ router.get('/', async (req, res) => {
           },
         },
         projects: {
-          include: {
-            tasks: true,
-            members: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                    image: true,
-                  },
-                },
-              },
-            },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            priority: true,
+            progress: true,
           },
         },
         _count: {
@@ -129,33 +121,6 @@ router.get('/:id', async (req, res) => {
         },
         projects: {
           include: {
-            tasks: {
-              include: {
-                assignee: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                    image: true,
-                  },
-                },
-                comments: {
-                  include: {
-                    user: {
-                      select: {
-                        id: true,
-                        name: true,
-                        email: true,
-                        image: true,
-                      },
-                    },
-                  },
-                  orderBy: {
-                    createdAt: 'desc',
-                  },
-                },
-              },
-            },
             members: {
               include: {
                 user: {
@@ -166,6 +131,12 @@ router.get('/:id', async (req, res) => {
                     image: true,
                   },
                 },
+              },
+            },
+            _count: {
+              select: {
+                tasks: true,
+                members: true,
               },
             },
           },
@@ -271,7 +242,7 @@ router.post('/', async (req, res) => {
             },
           },
         },
-        projects: [],
+        projects: true,
         _count: {
           select: {
             members: true,

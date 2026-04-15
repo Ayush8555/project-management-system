@@ -202,6 +202,11 @@ class ApiClient {
     return await this.get(`/projects${query}`);
   }
 
+  // Dashboard method — single call for all dashboard data
+  async getDashboard(workspaceId) {
+    return await this.get(`/dashboard?workspaceId=${workspaceId}`);
+  }
+
   async getProject(id) {
     return await this.get(`/projects/${id}`);
   }
@@ -272,6 +277,11 @@ class ApiClient {
     if (search) params.append('search', search);
     const query = params.toString() ? `?${params.toString()}` : '';
     return await this.get(`/users${query}`);
+  }
+
+  // Search method
+  async search(query) {
+    return await this.get(`/search?q=${encodeURIComponent(query)}`);
   }
 
   // Generic methods
