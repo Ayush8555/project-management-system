@@ -14,82 +14,98 @@ router.use(authenticateToken);
  */
 router.get('/', async (req, res) => {
   try {
-    const { workspaceId } = req.query;
+    const { workspaceId, search, status, priority } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 9;
+    const skip = (page - 1) * limit;
 
     const where = {
-      OR: [
-        { team_lead: req.user.id },
+      AND: [
         {
-          members: {
-            some: {
-              userId: req.user.id,
-            },
-          },
-        },
-        {
-          workspace: {
-            OR: [
-              { ownerId: req.user.id },
-              {
-                members: {
-                  some: {
-                    userId: req.user.id,
-                  },
-                },
+          OR: [
+            { team_lead: req.user.id },
+            {
+              members: {
+                some: { userId: req.user.id },
               },
-            ],
-          },
-        },
-      ],
+            },
+            {
+              workspace: {
+                OR: [
+                  { ownerId: req.user.id },
+                  {
+                    members: {
+                      some: { userId: req.user.id },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+      ]
     };
 
     if (workspaceId) {
       where.workspaceId = workspaceId;
     }
 
-    const projects = await prisma.project.findMany({
-      where,
-      include: {
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
+    if (search) {
+      where.AND.push({
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } }
+        ]
+      });
+    }
+
+    if (status && status !== 'ALL') {
+      where.status = status;
+    }
+
+    if (priority && priority !== 'ALL') {
+      where.priority = priority;
+    }
+
+    const [total, projects] = await Promise.all([
+      prisma.project.count({ where }),
+      prisma.project.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          owner: {
+            select: { id: true, name: true, email: true, image: true },
           },
-        },
-        workspace: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
+          workspace: {
+            select: { id: true, name: true, slug: true },
           },
-        },
-        members: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
-              },
+          members: {
+            include: {
+              user: { select: { id: true, name: true, email: true, image: true } },
             },
           },
-        },
-        _count: {
-          select: {
-            tasks: true,
-            members: true,
+          _count: {
+            select: { tasks: true, members: true },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          createdAt: 'desc',
+        },
+      })
+    ]);
 
-    res.json({ projects });
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({ 
+      projects,
+      pagination: {
+        total,
+        totalPages,
+        currentPage: page,
+        limit
+      }
+    });
   } catch (error) {
     console.error('Get projects error:', error);
     res.status(500).json({

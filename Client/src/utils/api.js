@@ -197,9 +197,16 @@ class ApiClient {
   }
 
   // Project methods
-  async getProjects(workspaceId = null) {
-    const query = workspaceId ? `?workspaceId=${workspaceId}` : '';
-    return await this.get(`/projects${query}`);
+  async getProjects(workspaceId = null, page = 1, limit = 9, search = '', status = 'ALL', priority = 'ALL') {
+    const params = new URLSearchParams();
+    if (workspaceId) params.append('workspaceId', workspaceId);
+    params.append('page', page);
+    params.append('limit', limit);
+    if (search) params.append('search', search);
+    if (status && status !== 'ALL') params.append('status', status);
+    if (priority && priority !== 'ALL') params.append('priority', priority);
+    
+    return await this.get(`/projects?${params.toString()}`);
   }
 
   // Dashboard method — single call for all dashboard data

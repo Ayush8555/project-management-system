@@ -12,16 +12,32 @@ export default function Projects() {
     const { currentWorkspace } = useSelector((state) => state.workspace);
     const { isAuthenticated, loading: authLoading } = useAuth();
     const [projects, setProjects] = useState([]);
+    const [pagination, setPagination] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [filteredProjects, setFilteredProjects] = useState([]);
     const [searchTerm, setSearchTerm] = useState("");
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
     const [filters, setFilters] = useState({
         status: "ALL",
         priority: "ALL",
     });
-    const hasLoadedRef = useRef(false);
+    const hasLoadedRef = useRef(null);
     const prevDialogOpenRef = useRef(false);
+
+    // Debounce search input
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm);
+            setCurrentPage(1); // Reset to page 1 on new search
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
+    // Reset to page 1 on filter changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filters.status, filters.priority]);
 
     // Fetch projects from API - only once when workspace changes
     useEffect(() => {
@@ -44,16 +60,25 @@ export default function Projects() {
                 return;
             }
 
-            // Prevent duplicate loads
-            if (hasLoadedRef.current === currentWorkspace.id) {
+            // Create a compound key to prevent duplicate loads for the same state
+            const stateKey = `${currentWorkspace.id}-${currentPage}-${debouncedSearchTerm}-${filters.status}-${filters.priority}`;
+            if (hasLoadedRef.current === stateKey) {
                 return;
             }
 
             setLoading(true);
             try {
-                const response = await apiClient.getProjects(currentWorkspace.id);
+                const response = await apiClient.getProjects(
+                    currentWorkspace.id,
+                    currentPage,
+                    9, // Limit
+                    debouncedSearchTerm,
+                    filters.status,
+                    filters.priority
+                );
                 setProjects(response.projects || []);
-                hasLoadedRef.current = currentWorkspace.id;
+                setPagination(response.pagination || null);
+                hasLoadedRef.current = stateKey;
             } catch (error) {
                 console.error('Failed to fetch projects:', error);
             } finally {
@@ -62,7 +87,7 @@ export default function Projects() {
         };
 
         loadProjects();
-    }, [currentWorkspace?.id, isAuthenticated, authLoading]);
+    }, [currentWorkspace?.id, isAuthenticated, authLoading, currentPage, debouncedSearchTerm, filters.status, filters.priority]);
 
     // Refresh projects after creating new one - only when dialog closes
     useEffect(() => {
@@ -73,8 +98,16 @@ export default function Projects() {
 
             const refreshProjects = async () => {
                 try {
-                    const response = await apiClient.getProjects(currentWorkspace.id);
+                    const response = await apiClient.getProjects(
+                        currentWorkspace.id,
+                        currentPage,
+                        9,
+                        debouncedSearchTerm,
+                        filters.status,
+                        filters.priority
+                    );
                     setProjects(response.projects || []);
+                    setPagination(response.pagination || null);
                     // Reset ref to allow future loads
                     hasLoadedRef.current = null;
                 } catch (error) {
@@ -84,31 +117,7 @@ export default function Projects() {
             refreshProjects();
         }
         prevDialogOpenRef.current = isDialogOpen;
-    }, [isDialogOpen, currentWorkspace?.id, isAuthenticated]);
-
-    useEffect(() => {
-        let filtered = projects;
-
-        if (searchTerm) {
-            filtered = filtered.filter(
-                (project) =>
-                    project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                    project.description?.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-        }
-
-        if (filters.status !== "ALL") {
-            filtered = filtered.filter((project) => project.status === filters.status);
-        }
-
-        if (filters.priority !== "ALL") {
-            filtered = filtered.filter(
-                (project) => project.priority === filters.priority
-            );
-        }
-
-        setFilteredProjects(filtered);
-    }, [projects, searchTerm, filters]);
+    }, [isDialogOpen, currentWorkspace?.id, isAuthenticated, currentPage, debouncedSearchTerm, filters]);
 
     return (
         <div className="space-y-6 max-w-6xl mx-auto">
@@ -155,29 +164,54 @@ export default function Projects() {
                     <p className="text-gray-500 dark:text-zinc-400">Loading projects...</p>
                 </div>
             ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredProjects.length === 0 ? (
-                    <div className="col-span-full text-center py-16">
-                        <div className="w-24 h-24 mx-auto mb-6 bg-gray-200 dark:bg-zinc-800 rounded-full flex items-center justify-center">
-                            <FolderOpen className="w-12 h-12 text-gray-400 dark:text-zinc-500" />
-                        </div>
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-                            No projects found
-                        </h3>
-                        <p className="text-gray-500 dark:text-zinc-400 mb-6 text-sm">
-                            Create your first project to get started
-                        </p>
-                        <button onClick={() => setIsDialogOpen(true)} className="flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded mx-auto text-sm" >
-                            <Plus className="size-4" />
-                            Create Project
-                        </button>
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {projects.length === 0 ? (
+                            <div className="col-span-full text-center py-16">
+                                <div className="w-24 h-24 mx-auto mb-6 bg-gray-200 dark:bg-zinc-800 rounded-full flex items-center justify-center">
+                                    <FolderOpen className="w-12 h-12 text-gray-400 dark:text-zinc-500" />
+                                </div>
+                                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                                    No projects found
+                                </h3>
+                                <p className="text-gray-500 dark:text-zinc-400 mb-6 text-sm">
+                                    Try adjusting your search or filters, or create your first project to get started
+                                </p>
+                                <button onClick={() => setIsDialogOpen(true)} className="flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded mx-auto text-sm" >
+                                    <Plus className="size-4" />
+                                    Create Project
+                                </button>
+                            </div>
+                        ) : (
+                            projects.map((project) => (
+                                <ProjectCard key={project.id} project={project} />
+                            ))
+                        )}
                     </div>
-                ) : (
-                    filteredProjects.map((project) => (
-                        <ProjectCard key={project.id} project={project} />
-                    ))
-                )}
-            </div>
+                    
+                    {/* Pagination Controls */}
+                    {pagination && pagination.totalPages > 1 && (
+                        <div className="flex justify-center items-center gap-4 mt-8 pt-4">
+                            <button 
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                                className="px-4 py-2 text-sm bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-gray-300 dark:border-zinc-700 rounded hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                            >
+                                Previous
+                            </button>
+                            <span className="text-sm text-gray-600 dark:text-zinc-400 font-medium">
+                                Page {pagination.currentPage} of {pagination.totalPages}
+                            </span>
+                            <button 
+                                onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
+                                disabled={currentPage === pagination.totalPages}
+                                className="px-4 py-2 text-sm bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-gray-300 dark:border-zinc-700 rounded hover:bg-gray-50 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
