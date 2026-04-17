@@ -27,9 +27,8 @@ function MyTasksSidebar() {
         }
     };
 
-    // Fetch tasks via API only when the sidebar is expanded (lazy load)
+    // Fetch tasks via API immediately to show the correct task count
     useEffect(() => {
-        if (!showMyTasks) return;
         if (authLoading || !isAuthenticated || !user?.id || !currentWorkspace?.id) return;
 
         const token = apiClient.getAccessToken();
@@ -45,7 +44,7 @@ function MyTasksSidebar() {
         };
 
         fetchTasks();
-    }, [showMyTasks, currentWorkspace?.id, user?.id, isAuthenticated, authLoading]);
+    }, [currentWorkspace?.id, user?.id, isAuthenticated, authLoading]);
 
     return (
         <div className="mt-6 px-3">

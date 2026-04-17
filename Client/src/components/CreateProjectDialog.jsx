@@ -4,6 +4,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { fetchWorkspace } from "../features/workspaceSlice";
 import apiClient from "../utils/api.js";
 import toast from "react-hot-toast";
+import { mutate } from "swr";
 
 const CreateProjectDialog = ({ isDialogOpen, setIsDialogOpen }) => {
 
@@ -75,6 +76,13 @@ const CreateProjectDialog = ({ isDialogOpen, setIsDialogOpen }) => {
             });
 
             toast.success('Project created successfully!');
+            
+            // Globally invalidate both dashboard AND project list SWR caches
+            mutate(
+                key => typeof key === 'string' && (key.startsWith('/api/projects') || key.startsWith('/api/dashboard')),
+                undefined,
+                { revalidate: true }
+            );
             
             // Refresh workspace to get updated projects
             await dispatch(fetchWorkspace(currentWorkspace.id));

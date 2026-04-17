@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import useSWR from "swr";
+import fetcher from "../utils/fetcher";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeftIcon, PlusIcon, SettingsIcon, BarChart3Icon, CalendarIcon, FileStackIcon, ZapIcon, CheckCircle, Trash2, UsersIcon } from "lucide-react";
@@ -23,12 +25,8 @@ export default function ProjectDetail() {
     const dispatch = useDispatch();
     const { user, isAuthenticated, loading: authLoading } = useAuth();
     const { currentWorkspace } = useSelector((state) => state.workspace);
-    const hasLoadedRef = useRef(false);
     const prevDialogOpenRef = useRef(false);
 
-    const [project, setProject] = useState(null);
-    const [tasks, setTasks] = useState([]);
-    const [loading, setLoading] = useState(true);
     const [showCreateTask, setShowCreateTask] = useState(false);
     const [activeTab, setActiveTab] = useState(tab || "tasks");
     const [isDeleting, setIsDeleting] = useState(false);
@@ -37,76 +35,34 @@ export default function ProjectDetail() {
         if (tab) setActiveTab(tab);
     }, [tab]);
 
+    const shouldFetch = isAuthenticated && !authLoading && id;
+
+    // SWR takes over caching and fetching
+    const { data: response, isLoading: loading, mutate } = useSWR(
+        shouldFetch ? `/api/projects/${id}` : null,
+        fetcher,
+        {
+            revalidateOnFocus: false,
+        }
+    );
+
+    const project = response?.project;
+    const tasks = project?.tasks || [];
+
     // Check if user is admin/owner
     const isAdmin = currentWorkspace?.ownerId === user?.id || 
                    currentWorkspace?.members?.some(m => m.userId === user?.id && m.role === 'ADMIN') ||
                    project?.team_lead === user?.id;
 
-    // Fetch project and tasks from API
+    // Refresh tasks when task dialog closes
     useEffect(() => {
-        const loadProject = async () => {
-            // Wait for auth
-            if (authLoading || !isAuthenticated) {
-                setLoading(false);
-                return;
-            }
-
-            if (!id) {
-                setLoading(false);
-                return;
-            }
-
-            // Prevent duplicate loads
-            if (hasLoadedRef.current === id) {
-                return;
-            }
-
-            // Check for token
-            const token = apiClient.getAccessToken();
-            if (!token) {
-                setLoading(false);
-                return;
-            }
-
-            setLoading(true);
-            try {
-                const response = await apiClient.getProject(id);
-                setProject(response.project);
-                setTasks(response.project.tasks || []);
-                hasLoadedRef.current = id;
-            } catch (error) {
-                console.error('Failed to fetch project:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadProject();
-    }, [id, isAuthenticated, authLoading]);
-
-    // Refresh tasks when task dialog closes - only once
-    useEffect(() => {
-        if (prevDialogOpenRef.current && !showCreateTask && id && isAuthenticated) {
-            const token = apiClient.getAccessToken();
-            if (!token) return;
-
-            const refreshProject = async () => {
-                try {
-                    const response = await apiClient.getProject(id);
-                    setProject(response.project);
-                    setTasks(response.project.tasks || []);
-                    // Reset ref to allow future loads
-                    hasLoadedRef.current = null;
-                } catch (error) {
-                    console.error('Failed to refresh project:', error);
-                }
-            };
-            refreshProject();
+        if (prevDialogOpenRef.current && !showCreateTask && shouldFetch) {
+            mutate();
         }
         prevDialogOpenRef.current = showCreateTask;
-    }, [showCreateTask, id, isAuthenticated]);
+    }, [showCreateTask, shouldFetch, mutate]);
 
-    const handleMarkComplete = async () => {
+    const handleMarkComplete = useCallback(async () => {
         if (!project?.id) return;
 
         const confirm = window.confirm('Are you sure you want to mark this project as completed?');
@@ -116,10 +72,8 @@ export default function ProjectDetail() {
             await apiClient.updateProject(project.id, { status: 'COMPLETED' });
             toast.success('Project marked as completed!');
             
-            // Refresh project
-            const response = await apiClient.getProject(project.id);
-            setProject(response.project);
-            hasLoadedRef.current = null;
+            // Optimistic refresh
+            mutate();
             
             // Refresh workspace
             if (project.workspaceId) {
@@ -128,9 +82,9 @@ export default function ProjectDetail() {
         } catch (error) {
             toast.error(error.message || 'Failed to update project');
         }
-    };
+    }, [project?.id, project?.workspaceId, dispatch, mutate]);
 
-    const handleDeleteProject = async () => {
+    const handleDeleteProject = useCallback(async () => {
         if (!project?.id) return;
 
         const confirm = window.confirm('Are you sure you want to delete this project? This action cannot be undone.');
@@ -152,7 +106,7 @@ export default function ProjectDetail() {
             toast.error(error.message || 'Failed to delete project');
             setIsDeleting(false);
         }
-    };
+    }, [project?.id, project?.workspaceId, dispatch, navigate]);
 
     const statusColors = {
         PLANNING: "bg-zinc-200 text-zinc-900 dark:bg-zinc-600 dark:text-zinc-200",
@@ -164,8 +118,15 @@ export default function ProjectDetail() {
 
     if (loading) {
         return (
-            <div className="p-6 text-center text-zinc-900 dark:text-zinc-200">
-                <p className="text-xl mt-40 mb-10">Loading project...</p>
+            <div className="p-6 text-center text-zinc-900 dark:text-zinc-200 space-y-6">
+                <div className="flex gap-4">
+                    <div className="h-8 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse" />
+                    <div className="h-8 w-48 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+                    {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse" />)}
+                </div>
+                <div className="h-64 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse" />
             </div>
         );
     }
@@ -263,7 +224,7 @@ export default function ProjectDetail() {
                 <div className="mt-6">
                     {activeTab === "tasks" && (
                         <div className=" dark:bg-zinc-900/40 rounded max-w-6xl">
-                            <ProjectTasks tasks={tasks} onTasksChange={(updatedTasks) => setTasks(updatedTasks)} />
+                            <ProjectTasks tasks={tasks} onTasksChange={() => mutate()} projectId={id} />
                         </div>
                     )}
                     {activeTab === "analytics" && (
@@ -280,28 +241,13 @@ export default function ProjectDetail() {
                         <div className=" dark:bg-zinc-900/40 rounded max-w-6xl">
                             <ProjectSettings 
                                 project={project} 
-                                onUpdate={(updatedProject) => {
-                                    setProject(updatedProject);
-                                    hasLoadedRef.current = null;
-                                }}
+                                onUpdate={() => mutate()}
                             />
                         </div>
                     )}
                     {activeTab === "members" && (
                         <div className=" dark:bg-zinc-900/40 rounded max-w-6xl">
-                            <ProjectMembers project={project} onUpdate={() => {
-                                hasLoadedRef.current = null;
-                                // Trigger reload
-                                const loadProject = async () => {
-                                    try {
-                                        const response = await apiClient.getProject(id);
-                                        setProject(response.project);
-                                    } catch (error) {
-                                        console.error('Failed to reload project:', error);
-                                    }
-                                };
-                                loadProject();
-                            }} />
+                            <ProjectMembers project={project} onUpdate={() => mutate()} />
                         </div>
                     )}
                 </div>

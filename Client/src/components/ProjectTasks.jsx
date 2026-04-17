@@ -1,7 +1,8 @@
 import { format } from "date-fns";
 import toast from "react-hot-toast";
 import { useDispatch } from "react-redux";
-import { useState, useMemo } from "react";
+import { useState, useMemo, memo } from "react";
+import { mutate } from "swr";
 import { useNavigate } from "react-router-dom";
 import { fetchWorkspace } from "../features/workspaceSlice";
 import apiClient from "../utils/api.js";
@@ -21,7 +22,7 @@ const priorityTexts = {
     HIGH: { background: "bg-emerald-100 dark:bg-emerald-950", prioritycolor: "text-emerald-600 dark:text-emerald-400" },
 };
 
-const ProjectTasks = ({ tasks, onTasksChange }) => {
+const ProjectTasks = memo(({ tasks, onTasksChange, projectId }) => {
     const dispatch = useDispatch();
     const navigate = useNavigate();
     const [selectedTasks, setSelectedTasks] = useState([]);
@@ -56,51 +57,60 @@ const ProjectTasks = ({ tasks, onTasksChange }) => {
     };
 
     const handleStatusChange = async (taskId, newStatus) => {
-        try {
-            toast.loading("Updating status...");
-
-            await apiClient.updateTask(taskId, { status: newStatus });
-
-            toast.dismiss();
-            toast.success("Task status updated successfully");
-            
-            // Update tasks locally — no page reload needed
-            if (onTasksChange) {
-                const updatedTasks = tasks.map(t => 
-                    t.id === taskId ? { ...t, status: newStatus } : t
-                );
-                onTasksChange(updatedTasks);
+        const swrKey = `/api/projects/${projectId}`;
+        
+        // Construct the expected new state to instantly update the UI wrapper
+        const optimisticProject = {
+            project: {
+                // We fake the wrapper's shape
+                tasks: tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t)
             }
+        };
+
+        try {
+            // Apply optimistic update immediately without revalidation waiting
+            mutate(swrKey, optimisticProject, false);
+            
+            // Fire the actual API call
+            await apiClient.updateTask(taskId, { status: newStatus });
+            
+            // Refresh with real server data
+            mutate(swrKey);
         } catch (error) {
-            toast.dismiss();
+            // Revert back on error
+            mutate(swrKey);
             toast.error(error?.message || "Failed to update task status");
         }
     };
 
     const handleDelete = async () => {
+        const confirm = window.confirm("Are you sure you want to delete the selected tasks?");
+        if (!confirm) return;
+
+        const swrKey = `/api/projects/${projectId}`;
+        const deletedIds = new Set(selectedTasks);
+        setSelectedTasks([]);
+
+        const optimisticProject = {
+            project: {
+                tasks: tasks.filter(t => !deletedIds.has(t.id))
+            }
+        };
+
         try {
-            const confirm = window.confirm("Are you sure you want to delete the selected tasks?");
-            if (!confirm) return;
+            // Instant UI removal
+            mutate(swrKey, optimisticProject, false);
+            toast.success("Tasks deleted successfully");
 
-            toast.loading("Deleting tasks...");
-
-            // Delete all selected tasks
+            // Background api deletion
             await Promise.all(
-                selectedTasks.map((taskId) => apiClient.deleteTask(taskId))
+                Array.from(deletedIds).map((taskId) => apiClient.deleteTask(taskId))
             );
 
-            toast.dismiss();
-            toast.success("Tasks deleted successfully");
-            
-            // Update tasks locally — no page reload needed
-            const deletedIds = new Set(selectedTasks);
-            setSelectedTasks([]);
-            if (onTasksChange) {
-                const updatedTasks = tasks.filter(t => !deletedIds.has(t.id));
-                onTasksChange(updatedTasks);
-            }
+            // Revalidate
+            mutate(swrKey);
         } catch (error) {
-            toast.dismiss();
+            mutate(swrKey);
             toast.error(error?.message || "Failed to delete tasks");
         }
     };
@@ -304,6 +314,6 @@ const ProjectTasks = ({ tasks, onTasksChange }) => {
             </div>
         </div>
     );
-};
+});
 
 export default ProjectTasks;

@@ -1,4 +1,7 @@
 import { Link } from "react-router-dom";
+import { memo } from "react";
+import { preload } from "swr";
+import fetcher from "../utils/fetcher";
 
 const statusColors = {
     PLANNING: "bg-gray-200 dark:bg-zinc-600 text-gray-900 dark:text-zinc-200",
@@ -8,9 +11,14 @@ const statusColors = {
     CANCELLED: "bg-red-200 dark:bg-red-500 text-red-900 dark:text-red-900",
 };
 
-const ProjectCard = ({ project }) => {
+const ProjectCard = memo(({ project }) => {
     return (
-        <Link to={`/projectsDetail?id=${project.id}&tab=tasks`} className="bg-white dark:bg-zinc-950 dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 border border-gray-200 dark:border-zinc-800 hover:border-gray-300 dark:hover:border-zinc-700 rounded-lg p-5 transition-all duration-200 group">
+        <Link 
+            to={`/projectsDetail?id=${project.id}&tab=tasks`} 
+            onMouseEnter={() => preload(`/api/projects/${project.id}`, fetcher)}
+            onFocus={() => preload(`/api/projects/${project.id}`, fetcher)}
+            className="bg-white dark:bg-zinc-950 dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 border border-gray-200 dark:border-zinc-800 hover:border-gray-300 dark:hover:border-zinc-700 rounded-lg p-5 transition-all duration-200 group"
+        >
             {/* Header */}
             <div className="flex items-start justify-between mb-3">
                 <div className="flex-1 min-w-0">
@@ -45,6 +53,6 @@ const ProjectCard = ({ project }) => {
 
             </Link>
     );
-};
+});
 
 export default ProjectCard;

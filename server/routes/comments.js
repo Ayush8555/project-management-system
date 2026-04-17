@@ -66,24 +66,41 @@ router.get('/', async (req, res) => {
       });
     }
 
-    const comments = await prisma.comment.findMany({
-      where: { taskId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const skip = (page - 1) * limit;
+
+    const [total, comments] = await Promise.all([
+      prisma.comment.count({ where: { taskId } }),
+      prisma.comment.findMany({
+        where: { taskId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
           },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
+        orderBy: {
+          createdAt: 'desc',
+        },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    res.json({
+      comments,
+      pagination: {
+        total,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        limit,
       },
     });
-
-    res.json({ comments });
   } catch (error) {
     console.error('Get comments error:', error);
     res.status(500).json({

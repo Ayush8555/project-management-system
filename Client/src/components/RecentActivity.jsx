@@ -1,5 +1,6 @@
 import { GitCommit, MessageSquare, Clock, Bug, Zap, Square } from "lucide-react";
 import { format } from "date-fns";
+import { memo } from "react";
 
 const typeIcons = {
     BUG: { icon: Bug, color: "text-red-500 dark:text-red-400" },
@@ -15,7 +16,7 @@ const statusColors = {
     DONE: "bg-emerald-200 text-emerald-800 dark:bg-emerald-500 dark:text-emerald-900",
 };
 
-const RecentActivity = ({ tasks: tasksProp, loading }) => {
+const RecentActivity = memo(({ tasks: tasksProp, loading }) => {
     const tasks = tasksProp || [];
 
     return (
@@ -81,6 +82,6 @@ const RecentActivity = ({ tasks: tasksProp, loading }) => {
             </div>
         </div>
     );
-};
+});
 
 export default RecentActivity;

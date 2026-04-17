@@ -1,46 +1,42 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { ChevronRightIcon, SettingsIcon, KanbanIcon, ChartColumnIcon, CalendarIcon, ArrowRightIcon } from 'lucide-react';
 import { useSelector } from 'react-redux';
 import { useAuth } from '../contexts/AuthContext';
-import apiClient from '../utils/api.js';
+import useSWR from 'swr';
+import fetcher from '../utils/fetcher';
 
 const ProjectSidebar = () => {
-
     const location = useLocation();
     const { isAuthenticated, loading: authLoading } = useAuth();
     const [expandedProjects, setExpandedProjects] = useState(new Set());
     const [searchParams] = useSearchParams();
-    const [projects, setProjects] = useState([]);
 
     // Get workspace from state
     const workspace = useSelector((state) => state?.workspace?.currentWorkspace);
     
-    // Fetch projects from API
-    useEffect(() => {
-        const loadProjects = async () => {
-            if (authLoading || !isAuthenticated || !workspace?.id) {
-                return;
-            }
+    // Construct exactly matching endpoint for projects
+    const shouldFetch = isAuthenticated && !authLoading && workspace?.id;
+    const queryParams = new URLSearchParams({
+        workspaceId: workspace?.id || '',
+        page: 1,
+        limit: 9,
+        search: '',
+        status: 'ALL',
+        priority: 'ALL'
+    }).toString();
 
-            const token = apiClient.getAccessToken();
-            if (!token) return;
+    // Fetch projects from API using SWR for shared caching and reactivity
+    const { data: response } = useSWR(
+        shouldFetch ? `/api/projects?${queryParams}` : null,
+        fetcher,
+        {
+            revalidateOnFocus: true,
+            dedupingInterval: 10000 // 10 seconds
+        }
+    );
 
-            try {
-                const response = await apiClient.getProjects(workspace.id);
-                setProjects(response.projects || []);
-            } catch (error) {
-                console.error('Failed to fetch projects for sidebar:', error);
-            }
-        };
-
-        loadProjects();
-    }, [workspace?.id, isAuthenticated, authLoading]);
-    
-    // Memoize projects to prevent creating new array reference on every render
-    const memoizedProjects = useMemo(() => {
-        return projects;
-    }, [projects]);
+    const projects = response?.projects || [];
 
     const getProjectSubItems = (projectId) => [
         { title: 'Tasks', icon: KanbanIcon, url: `/projectsDetail?id=${projectId}&tab=tasks` },
@@ -69,7 +65,7 @@ const ProjectSidebar = () => {
             </div>
 
             <div className="space-y-1 px-3">
-                {memoizedProjects.map((project) => (
+                {projects.map((project) => (
                     <div key={project.id}>
                         <button onClick={() => toggleProject(project.id)} className="w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors duration-200 text-gray-700 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-800 hover:text-gray-900 dark:hover:text-white" >
                             <ChevronRightIcon className={`size-3 text-gray-500 dark:text-zinc-400 transition-transform duration-200 ${expandedProjects.has(project.id) && 'rotate-90'}`} />

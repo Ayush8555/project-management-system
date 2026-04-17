@@ -24,6 +24,27 @@ router.get('/', async (req, res) => {
 
     const searchTerm = q.trim();
 
+    // Pre-flight check: Get all accessible workspaces and projects for the user quickly
+    const userProjectsAndWorkspaces = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        ownedWorkspaces: { select: { id: true } },
+        workspaces: { select: { workspaceId: true } },
+        projects: { select: { id: true } },
+        ProjectMember: { select: { projectId: true } },
+      }
+    });
+
+    const accessibleWorkspaceIds = [
+       ...userProjectsAndWorkspaces.ownedWorkspaces.map(w => w.id),
+       ...userProjectsAndWorkspaces.workspaces.map(w => w.workspaceId)
+    ];
+
+    const accessibleProjectIds = [
+       ...userProjectsAndWorkspaces.projects.map(p => p.id),
+       ...userProjectsAndWorkspaces.ProjectMember.map(p => p.projectId)
+    ];
+
     // Parallel search queries for better performance
     const [projects, tasks, users] = await Promise.all([
       // 1. Search Projects
@@ -37,17 +58,9 @@ router.get('/', async (req, res) => {
                ]
              },
              {
-               // User must have access to the project
                OR: [
-                 { team_lead: req.user.id },
-                 { members: { some: { userId: req.user.id } } },
-                 { workspace: { ownerId: req.user.id } }, // workspace owner
-                 { workspace: { members: { some: { userId: req.user.id } } } } // workspace member access check might be too broad here?
-                 // Usually project visibility is tied to workspace membership, but let's be safe:
-                 // If user is in workspace, they can see projects?
-                 // The original project fetch logic in projects.js checks for:
-                 // team_lead, OR members.some(userId), OR workspace.ownerId, OR workspace.members.some(userId)
-                 // This implies if you are in the workspace, you can see the project.
+                 { id: { in: accessibleProjectIds } },
+                 { workspaceId: { in: accessibleWorkspaceIds } }
                ]
              }
           ]
@@ -72,15 +85,11 @@ router.get('/', async (req, res) => {
               ]
             },
             {
-              // User must have access: assignee, or project member/lead, or workspace member
-               project: {
-                  OR: [
-                    { team_lead: req.user.id },
-                    { members: { some: { userId: req.user.id } } },
-                    { workspace: { ownerId: req.user.id } },
-                    { workspace: { members: { some: { userId: req.user.id } } } }
-                  ]
-               }
+               OR: [
+                 { assigneeId: req.user.id },
+                 { projectId: { in: accessibleProjectIds } },
+                 { project: { workspaceId: { in: accessibleWorkspaceIds } } }
+               ]
             }
           ]
         },
@@ -97,7 +106,6 @@ router.get('/', async (req, res) => {
       }),
 
       // 3. Search Users (Members of user's workspaces)
-      // We want users who share at least one workspace with the requesting user
       prisma.user.findMany({
          where: {
             AND: [
@@ -110,11 +118,7 @@ router.get('/', async (req, res) => {
                {
                  workspaces: {
                    some: {
-                     workspace: {
-                        members: {
-                          some: { userId: req.user.id }
-                        }
-                     }
+                     workspaceId: { in: accessibleWorkspaceIds }
                    }
                  }
                }

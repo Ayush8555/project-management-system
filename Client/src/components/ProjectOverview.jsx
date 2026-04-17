@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, Calendar, UsersIcon, FolderOpen } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, memo, useMemo } from "react";
 import { useSelector } from "react-redux";
 import CreateProjectDialog from "./CreateProjectDialog";
 
-const ProjectOverview = ({ projects: projectsProp, loading }) => {
+const ProjectOverview = memo(({ projects: projectsProp, loading }) => {
     const statusColors = {
         PLANNING: "bg-zinc-200 text-zinc-800 dark:bg-zinc-600 dark:text-zinc-200",
         ACTIVE: "bg-emerald-200 text-emerald-800 dark:bg-emerald-500 dark:text-emerald-900",
@@ -24,6 +24,7 @@ const ProjectOverview = ({ projects: projectsProp, loading }) => {
     const [isDialogOpen, setIsDialogOpen] = useState(false);
 
     const projects = projectsProp || [];
+    const slicedProjects = useMemo(() => projects.slice(0, 5), [projects]);
 
     return currentWorkspace && (
         <div className="bg-white dark:bg-zinc-950 dark:bg-gradient-to-br dark:from-zinc-800/70 dark:to-zinc-900/50 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-200 rounded-lg overflow-hidden">
@@ -39,7 +40,7 @@ const ProjectOverview = ({ projects: projectsProp, loading }) => {
                     <div className="p-12 text-center">
                         <p className="text-zinc-600 dark:text-zinc-400">Loading projects...</p>
                     </div>
-                ) : projects.length === 0 ? (
+                ) : slicedProjects.length === 0 ? (
                     <div className="p-12 text-center">
                         <div className="w-16 h-16 mx-auto mb-4 bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-500 rounded-full flex items-center justify-center">
                             <FolderOpen size={32} />
@@ -52,7 +53,7 @@ const ProjectOverview = ({ projects: projectsProp, loading }) => {
                     </div>
                 ) : (
                     <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                        {projects.slice(0, 5).map((project) => (
+                        {slicedProjects.map((project) => (
                             <Link key={project.id} to={`/projectsDetail?id=${project.id}&tab=tasks`} className="block p-6 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors">
                                 <div className="flex items-start justify-between mb-3">
                                     <div className="flex-1">
@@ -104,6 +105,6 @@ const ProjectOverview = ({ projects: projectsProp, loading }) => {
             </div>
         </div>
     );
-}
+});
 
 export default ProjectOverview;

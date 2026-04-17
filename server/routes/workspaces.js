@@ -2,6 +2,7 @@ import express from 'express';
 import prisma from '../configs/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { customAlphabet } from 'nanoid';
+import { getCache, setCache, invalidateCache } from '../utils/cache.js';
 const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 12);
 
 const router = express.Router();
@@ -14,6 +15,11 @@ router.use(authenticateToken);
  */
 router.get('/', async (req, res) => {
   try {
+    // Cache per user, 60s TTL
+    const cacheKey = `workspaces:list:${req.user.id}`;
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
     const workspaces = await prisma.workspace.findMany({
       where: {
         OR: [
@@ -36,27 +42,6 @@ router.get('/', async (req, res) => {
             image: true,
           },
         },
-        members: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
-              },
-            },
-          },
-        },
-        projects: {
-          select: {
-            id: true,
-            name: true,
-            status: true,
-            priority: true,
-            progress: true,
-          },
-        },
         _count: {
           select: {
             members: true,
@@ -69,7 +54,10 @@ router.get('/', async (req, res) => {
       },
     });
 
-    res.json({ workspaces });
+    const result = { workspaces };
+    setCache(cacheKey, result, 60);
+
+    res.json(result);
   } catch (error) {
     console.error('Get workspaces error:', error);
     res.status(500).json({
@@ -84,6 +72,12 @@ router.get('/', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
+    // Cache key per user+workspace
+    const cacheKey = `workspace:${req.params.id}:${req.user.id}`;
+    const { getCache, setCache } = await import('../utils/cache.js');
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
     const workspace = await prisma.workspace.findFirst({
       where: {
         id: req.params.id,
@@ -119,20 +113,15 @@ router.get('/:id', async (req, res) => {
             },
           },
         },
+        // SLIMMED: Only fetch project summary data, NOT full project members
         projects: {
-          include: {
-            members: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                    image: true,
-                  },
-                },
-              },
-            },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            priority: true,
+            progress: true,
+            createdAt: true,
             _count: {
               select: {
                 tasks: true,
@@ -140,6 +129,7 @@ router.get('/:id', async (req, res) => {
               },
             },
           },
+          orderBy: { createdAt: 'desc' },
         },
       },
     });
@@ -150,7 +140,10 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    res.json({ workspace });
+    const result = { workspace };
+    setCache(cacheKey, result, 60); // Cache for 60 seconds
+
+    res.json(result);
   } catch (error) {
     console.error('Get workspace error:', error);
     res.status(500).json({
@@ -252,6 +245,9 @@ router.post('/', async (req, res) => {
       },
     });
 
+    // Invalidate workspace caches
+    invalidateCache('workspaces');
+
     res.status(201).json({
       message: 'Workspace created successfully',
       workspace: workspaceWithRelations,
@@ -332,6 +328,10 @@ router.put('/:id', async (req, res) => {
       },
     });
 
+    // Invalidate workspace caches
+    invalidateCache('workspace');
+    invalidateCache('workspaces');
+
     res.json({
       message: 'Workspace updated successfully',
       workspace: updatedWorkspace,
@@ -367,6 +367,12 @@ router.delete('/:id', async (req, res) => {
     await prisma.workspace.delete({
       where: { id: req.params.id },
     });
+
+    // Invalidate workspace caches
+    invalidateCache('workspace');
+    invalidateCache('workspaces');
+    invalidateCache('dashboard');
+    invalidateCache('projects');
 
     res.json({
       message: 'Workspace deleted successfully',
@@ -617,6 +623,10 @@ router.delete('/:id/members/:memberId', async (req, res) => {
         userId: req.params.memberId,
       },
     });
+
+    // Invalidate workspace caches
+    invalidateCache('workspace');
+    invalidateCache('workspaces');
 
     res.json({
       message: 'Member removed successfully',

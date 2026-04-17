@@ -1,13 +1,19 @@
 import { ArrowRight, Clock, AlertTriangle, User } from "lucide-react";
+import { memo, useMemo } from "react";
 
-export default function TasksSummary({ tasks: tasksProp, loading, userId }) {
+const TasksSummary = memo(({ tasks: tasksProp, loading, userId }) => {
     const tasks = tasksProp || [];
 
-    const myTasks = tasks.filter(i => i.assigneeId === userId);
-    const overdueTasks = tasks.filter(t => t.due_date && new Date(t.due_date) < new Date() && t.status !== 'DONE');
-    const inProgressIssues = tasks.filter(i => i.status === 'IN_PROGRESS');
+    const { myTasks, overdueTasks, inProgressIssues } = useMemo(() => {
+        const now = new Date();
+        return {
+            myTasks: tasks.filter(i => i.assigneeId === userId),
+            overdueTasks: tasks.filter(t => t.due_date && new Date(t.due_date) < now && t.status !== 'DONE'),
+            inProgressIssues: tasks.filter(i => i.status === 'IN_PROGRESS')
+        };
+    }, [tasks, userId]);
 
-    const summaryCards = [
+    const summaryCards = useMemo(() => [
         {
             title: "My Tasks",
             count: myTasks.length,
@@ -29,7 +35,7 @@ export default function TasksSummary({ tasks: tasksProp, loading, userId }) {
             color: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-400",
             items: inProgressIssues.slice(0, 3)
         }
-    ];
+    ], [myTasks, overdueTasks, inProgressIssues]);
 
     return (
         <div className="space-y-6">
@@ -81,4 +87,6 @@ export default function TasksSummary({ tasks: tasksProp, loading, userId }) {
             ))}
         </div>
     );
-}
+});
+
+export default TasksSummary;

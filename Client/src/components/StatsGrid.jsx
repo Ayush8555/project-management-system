@@ -1,6 +1,7 @@
 import { FolderOpen, CheckCircle, Users, AlertTriangle } from "lucide-react";
+import { memo } from "react";
 
-export default function StatsGrid({ stats, loading, workspaceName }) {
+const StatsGrid = memo(function StatsGrid({ stats, loading, workspaceName }) {
     const data = stats || {
         totalProjects: 0,
         activeProjects: 0,
@@ -55,9 +56,13 @@ export default function StatsGrid({ stats, loading, workspaceName }) {
                                     <p className="text-sm text-zinc-500 dark:text-zinc-400 mb-1">
                                         {title}
                                     </p>
-                                    <p className="text-3xl font-bold text-zinc-800 dark:text-white">
-                                        {loading ? "—" : value}
-                                    </p>
+                                    <div className="text-3xl font-bold text-zinc-800 dark:text-white h-9 flex items-center">
+                                        {loading ? (
+                                            <div className="h-6 w-12 bg-zinc-200 dark:bg-zinc-700 animate-pulse rounded" />
+                                        ) : (
+                                            value
+                                        )}
+                                    </div>
                                     {subtitle && (
                                         <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
                                             {subtitle}
@@ -74,4 +79,6 @@ export default function StatsGrid({ stats, loading, workspaceName }) {
             )}
         </div>
     );
-}
+});
+
+export default StatsGrid;

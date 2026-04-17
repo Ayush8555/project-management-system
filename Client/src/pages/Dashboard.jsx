@@ -1,78 +1,40 @@
 import { Plus } from 'lucide-react'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import useSWR from 'swr'
+import fetcher from '../utils/fetcher'
 import StatsGrid from '../components/StatsGrid'
 import ProjectOverview from '../components/ProjectOverview'
 import RecentActivity from '../components/RecentActivity'
 import TasksSummary from '../components/TasksSummary'
 import CreateProjectDialog from '../components/CreateProjectDialog'
+import { StatsGridSkeleton, ProjectOverviewSkeleton, RecentActivitySkeleton } from '../components/Skeletons'
 import { useAuth } from '../contexts/AuthContext'
 import { useSelector } from 'react-redux'
-import apiClient from '../utils/api.js'
 
 const Dashboard = () => {
-
     const { user, isAuthenticated, loading: authLoading } = useAuth()
     const { currentWorkspace } = useSelector((state) => state.workspace)
     const [isDialogOpen, setIsDialogOpen] = useState(false)
-    const [dashboardData, setDashboardData] = useState(null)
-    const [loading, setLoading] = useState(true)
-    const hasLoadedRef = useRef(false)
     const prevDialogOpenRef = useRef(false)
 
-    // Single API call for all dashboard data
-    useEffect(() => {
-        const loadDashboard = async () => {
-            if (authLoading || !isAuthenticated) {
-                setLoading(false)
-                return
-            }
-            if (!currentWorkspace?.id) {
-                setLoading(false)
-                return
-            }
-            const token = apiClient.getAccessToken()
-            if (!token) {
-                setLoading(false)
-                return
-            }
-            if (hasLoadedRef.current === currentWorkspace.id) {
-                return
-            }
+    const shouldFetch = isAuthenticated && !authLoading && currentWorkspace?.id
 
-            setLoading(true)
-            try {
-                const data = await apiClient.getDashboard(currentWorkspace.id)
-                setDashboardData(data)
-                hasLoadedRef.current = currentWorkspace.id
-            } catch (error) {
-                console.error('Failed to load dashboard:', error)
-            } finally {
-                setLoading(false)
-            }
+    const { data: dashboardData, isLoading, mutate } = useSWR(
+        shouldFetch ? `/api/dashboard?workspaceId=${currentWorkspace.id}` : null,
+        fetcher,
+        {
+            revalidateOnFocus: false, // Prevents excessive refocus fetching
+            dedupingInterval: 30000 // 30s cache
         }
-
-        loadDashboard()
-    }, [currentWorkspace?.id, isAuthenticated, authLoading])
+    )
 
     // Refresh dashboard when dialog closes (project was created)
     useEffect(() => {
-        if (prevDialogOpenRef.current && !isDialogOpen && currentWorkspace?.id && isAuthenticated) {
-            const token = apiClient.getAccessToken()
-            if (!token) return
-
-            const refreshDashboard = async () => {
-                try {
-                    const data = await apiClient.getDashboard(currentWorkspace.id)
-                    setDashboardData(data)
-                    hasLoadedRef.current = null
-                } catch (error) {
-                    console.error('Failed to refresh dashboard:', error)
-                }
-            }
-            refreshDashboard()
+        if (prevDialogOpenRef.current && !isDialogOpen && shouldFetch) {
+            mutate()
         }
         prevDialogOpenRef.current = isDialogOpen
-    }, [isDialogOpen, currentWorkspace?.id, isAuthenticated])
+    }, [isDialogOpen, shouldFetch, mutate])
 
     return (
         <div className='max-w-6xl mx-auto'>
@@ -89,29 +51,40 @@ const Dashboard = () => {
                 <CreateProjectDialog isDialogOpen={isDialogOpen} setIsDialogOpen={setIsDialogOpen} />
             </div>
 
-            <StatsGrid
-                stats={dashboardData?.stats}
-                loading={loading}
-                workspaceName={currentWorkspace?.name}
-            />
+            {isLoading ? (
+                <div className="mt-8 mb-8"><StatsGridSkeleton /></div>
+            ) : (
+                <StatsGrid
+                    stats={dashboardData?.stats}
+                    loading={false}
+                    workspaceName={currentWorkspace?.name}
+                />
+            )}
 
-            <div className="grid lg:grid-cols-3 gap-8">
+            <div className="grid lg:grid-cols-3 gap-8 mt-8">
                 <div className="lg:col-span-2 space-y-8">
-                    <ProjectOverview
-                        projects={dashboardData?.projects}
-                        loading={loading}
-                    />
-                    <RecentActivity
-                        tasks={dashboardData?.recentTasks}
-                        loading={loading}
-                    />
+                    {isLoading ? (
+                        <>
+                            <ProjectOverviewSkeleton />
+                            <RecentActivitySkeleton />
+                        </>
+                    ) : (
+                        <>
+                            <ProjectOverview projects={dashboardData?.projects} loading={false} />
+                            <RecentActivity tasks={dashboardData?.recentTasks} loading={false} />
+                        </>
+                    )}
                 </div>
                 <div>
-                    <TasksSummary
-                        tasks={dashboardData?.myTasks}
-                        loading={loading}
-                        userId={user?.id}
-                    />
+                    {isLoading ? (
+                        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 h-[400px]" />
+                    ) : (
+                        <TasksSummary
+                            tasks={dashboardData?.myTasks}
+                            loading={false}
+                            userId={user?.id}
+                        />
+                    )}
                 </div>
             </div>
         </div>
@@ -119,3 +92,4 @@ const Dashboard = () => {
 }
 
 export default Dashboard
+

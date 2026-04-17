@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "darwin", "darwin-arm64"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum WorkspaceRole {
@@ -87,6 +89,8 @@ model Workspace {
     projects Project[]
     owner    User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
     pendingInvites PendingInvite[]
+
+    @@index([ownerId])
 }
 
 model WorkspaceMember {
@@ -99,6 +103,8 @@ model WorkspaceMember {
     workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
     @@unique([userId, workspaceId]) // prevent duplicate membership
+    @@index([workspaceId])
+    @@index([userId])
 }
 
 model PendingInvite {
@@ -111,6 +117,7 @@ model PendingInvite {
     workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
     @@unique([email, workspaceId])
+    @@index([workspaceId])
 }
 
 model Project {
@@ -131,6 +138,13 @@ model Project {
     owner     User      @relation("ProjectOwner", fields: [team_lead], references: [id], onDelete: Cascade)
     workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
     tasks     Task[]
+
+    @@index([workspaceId])
+    @@index([team_lead])
+    @@index([status])
+    @@index([createdAt])
+    @@index([workspaceId, status])
+    @@index([workspaceId, createdAt])
 }
 
 model ProjectMember {
@@ -141,6 +155,8 @@ model ProjectMember {
     project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
     @@unique([userId, projectId]) // prevent duplicate membership
+    @@index([projectId])
+    @@index([userId])
 }
 
 model Task {
@@ -159,6 +175,17 @@ model Task {
     project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
     assignee User?     @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
     comments Comment[]
+
+    @@index([projectId])
+    @@index([assigneeId])
+    @@index([status])
+    @@index([due_date])
+    @@index([updatedAt])
+    @@index([projectId, status])
+    @@index([status, due_date])
+    @@index([projectId, createdAt])
+    @@index([assigneeId, status])
+    @@index([projectId, assigneeId])
 }
 
 model Comment {
@@ -170,4 +197,8 @@ model Comment {
 
     user User @relation(fields: [userId], references: [id], onDelete: Cascade)
     task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+    @@index([taskId])
+    @@index([userId])
+    @@index([createdAt])
 }

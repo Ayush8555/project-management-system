@@ -1,5 +1,13 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5009/api';
 
+/**
+ * Request deduplication map.
+ * If the same GET endpoint is already in-flight, return the same Promise
+ * instead of sending a duplicate request. This prevents multiple components
+ * mounting at the same time from hammering the same endpoint.
+ */
+const inflightRequests = new Map();
+
 class ApiClient {
   constructor() {
     this.accessToken = localStorage.getItem('accessToken') || null;
@@ -291,9 +299,25 @@ class ApiClient {
     return await this.get(`/search?q=${encodeURIComponent(query)}`);
   }
 
-  // Generic methods
+  /**
+   * GET with request deduplication.
+   * If the same GET URL is already in-flight, piggyback on that Promise
+   * instead of sending a duplicate HTTP request.
+   */
   get(endpoint) {
-    return this.request(endpoint, { method: 'GET' });
+    const key = `GET:${endpoint}`;
+    
+    if (inflightRequests.has(key)) {
+      return inflightRequests.get(key);
+    }
+
+    const promise = this.request(endpoint, { method: 'GET' })
+      .finally(() => {
+        inflightRequests.delete(key);
+      });
+
+    inflightRequests.set(key, promise);
+    return promise;
   }
 
   post(endpoint, body) {
@@ -324,4 +348,3 @@ class ApiClient {
 
 export const apiClient = new ApiClient();
 export default apiClient;
-

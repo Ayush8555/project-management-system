@@ -2,6 +2,7 @@ import express from 'express';
 import prisma from '../configs/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { customAlphabet } from 'nanoid';
+import { getCache, setCache, invalidateCache } from '../utils/cache.js';
 const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 12);
 
 const router = express.Router();
@@ -11,42 +12,39 @@ router.use(authenticateToken);
 
 /**
  * GET /api/tasks - Get all tasks for the logged-in user
+ * OPTIMIZED: Replaced "fetch all user projects" preflight with workspace-based access
  */
 router.get('/', async (req, res) => {
   try {
     const { projectId, status, assigneeId } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100); // Max 100
+    const skip = (page - 1) * limit;
+
+    // Cache key based on user + filters
+    const cacheKey = `tasks:${req.user.id}:${projectId || ''}:${status || ''}:${assigneeId || ''}:${page}:${limit}`;
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
+    // OPTIMIZED: Fetch accessible workspace IDs instead of all project IDs
+    // This is O(workspaces) instead of O(projects) — much smaller set
+    const userAccess = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        ownedWorkspaces: { select: { id: true } },
+        workspaces: { select: { workspaceId: true } },
+      }
+    });
+
+    const accessibleWorkspaceIds = [
+      ...(userAccess?.ownedWorkspaces?.map(w => w.id) || []),
+      ...(userAccess?.workspaces?.map(w => w.workspaceId) || [])
+    ];
 
     const where = {
       OR: [
         { assigneeId: req.user.id },
-        {
-          project: {
-            OR: [
-              { team_lead: req.user.id },
-              {
-                members: {
-                  some: {
-                    userId: req.user.id,
-                  },
-                },
-              },
-              {
-                workspace: {
-                  OR: [
-                    { ownerId: req.user.id },
-                    {
-                      members: {
-                        some: {
-                          userId: req.user.id,
-                        },
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-        },
+        { project: { workspaceId: { in: accessibleWorkspaceIds } } },
       ],
     };
 
@@ -62,51 +60,54 @@ router.get('/', async (req, res) => {
       where.assigneeId = assigneeId;
     }
 
-    const tasks = await prisma.task.findMany({
-      where,
-      include: {
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
-          },
-        },
-        project: {
-          select: {
-            id: true,
-            name: true,
-            workspaceId: true,
-          },
-        },
-        comments: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
-              },
+    const [total, tasks] = await Promise.all([
+      prisma.task.count({ where }),
+      prisma.task.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          assignee: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
             },
           },
-          orderBy: {
-            createdAt: 'desc',
+          project: {
+            select: {
+              id: true,
+              name: true,
+              workspaceId: true,
+            },
+          },
+          _count: {
+            select: {
+              comments: true,
+            },
           },
         },
-        _count: {
-          select: {
-            comments: true,
-          },
+        orderBy: {
+          createdAt: 'desc',
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+      }),
+    ]);
 
-    res.json({ tasks });
+    const result = {
+      tasks,
+      pagination: {
+        total,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+        limit,
+      },
+    };
+
+    // Cache for 30 seconds
+    setCache(cacheKey, result, 30);
+
+    res.json(result);
   } catch (error) {
     console.error('Get tasks error:', error);
     res.status(500).json({
@@ -166,20 +167,15 @@ router.get('/:id', async (req, res) => {
           },
         },
         project: {
-          include: {
+          select: {
+            id: true,
+            name: true,
+            team_lead: true,
             workspace: {
               select: {
                 id: true,
                 name: true,
                 slug: true,
-              },
-            },
-            owner: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
               },
             },
           },
@@ -198,6 +194,10 @@ router.get('/:id', async (req, res) => {
           orderBy: {
             createdAt: 'desc',
           },
+          take: 50, // Paginate comments
+        },
+        _count: {
+          select: { comments: true },
         },
       },
     });
@@ -237,19 +237,13 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // if (!assigneeId) {
-    //   return res.status(400).json({
-    //     error: 'Assignee is required',
-    //   });
-    // }
-
     if (!due_date) {
       return res.status(400).json({
         error: 'Due date is required',
       });
     }
 
-    // Verify user has access to project
+    // Verify user has access to project — select only id
     const project = await prisma.project.findFirst({
       where: {
         id: projectId,
@@ -278,6 +272,7 @@ router.post('/', async (req, res) => {
           },
         ],
       },
+      select: { id: true },
     });
 
     if (!project) {
@@ -314,7 +309,6 @@ router.post('/', async (req, res) => {
             name: true,
           },
         },
-        comments: true,
         _count: {
           select: {
             comments: true,
@@ -323,8 +317,13 @@ router.post('/', async (req, res) => {
       },
     });
 
-    // Update project progress
-    await updateProjectProgress(projectId);
+    // Update project progress (fire and forget — don't block response)
+    updateProjectProgress(projectId);
+
+    // Invalidate caches
+    invalidateCache('dashboard');
+    invalidateCache('tasks');
+    invalidateCache(`project:${projectId}`);
 
     res.status(201).json({
       message: 'Task created successfully',
@@ -341,12 +340,15 @@ router.post('/', async (req, res) => {
 
 /**
  * PUT /api/tasks/:id - Update a task
+ * OPTIMIZED: 
+ *   - Permission check uses select instead of include: { project: true }
+ *   - Response excludes full comments array, uses _count instead
  */
 router.put('/:id', async (req, res) => {
   try {
     const { title, description, status, type, priority, assigneeId, due_date } = req.body;
 
-    // Check if user has permission
+    // OPTIMIZED: select only projectId for permission check (was: include: { project: true })
     const task = await prisma.task.findFirst({
       where: {
         id: req.params.id,
@@ -376,8 +378,9 @@ router.put('/:id', async (req, res) => {
           },
         ],
       },
-      include: {
-        project: true,
+      select: {
+        id: true,
+        projectId: true,
       },
     });
 
@@ -396,6 +399,7 @@ router.put('/:id', async (req, res) => {
     if (assigneeId) updateData.assigneeId = assigneeId;
     if (due_date) updateData.due_date = new Date(due_date);
 
+    // OPTIMIZED: Don't include full comments array — just return task data + _count
     const updatedTask = await prisma.task.update({
       where: { id: req.params.id },
       data: updateData,
@@ -414,21 +418,6 @@ router.put('/:id', async (req, res) => {
             name: true,
           },
         },
-        comments: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
-              },
-            },
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        },
         _count: {
           select: {
             comments: true,
@@ -437,10 +426,15 @@ router.put('/:id', async (req, res) => {
       },
     });
 
-    // Update project progress if status changed
+    // Update project progress if status changed (fire and forget)
     if (status) {
-      await updateProjectProgress(task.projectId);
+      updateProjectProgress(task.projectId);
     }
+    
+    // Invalidate caches
+    invalidateCache('dashboard');
+    invalidateCache('tasks');
+    invalidateCache(`project:${task.projectId}`);
 
     res.json({
       message: 'Task updated successfully',
@@ -457,10 +451,11 @@ router.put('/:id', async (req, res) => {
 
 /**
  * DELETE /api/tasks/:id - Delete a task
+ * OPTIMIZED: Permission check uses select instead of include: { project: true }
  */
 router.delete('/:id', async (req, res) => {
   try {
-    // Check if user has permission
+    // OPTIMIZED: select only projectId (was: include: { project: true })
     const task = await prisma.task.findFirst({
       where: {
         id: req.params.id,
@@ -489,8 +484,9 @@ router.delete('/:id', async (req, res) => {
           },
         ],
       },
-      include: {
-        project: true,
+      select: {
+        id: true,
+        projectId: true,
       },
     });
 
@@ -506,8 +502,13 @@ router.delete('/:id', async (req, res) => {
       where: { id: req.params.id },
     });
 
-    // Update project progress
-    await updateProjectProgress(projectId);
+    // Update project progress (fire and forget)
+    updateProjectProgress(projectId);
+
+    // Invalidate caches
+    invalidateCache('dashboard');
+    invalidateCache('tasks');
+    invalidateCache(`project:${projectId}`);
 
     res.json({
       message: 'Task deleted successfully',
@@ -526,12 +527,12 @@ router.delete('/:id', async (req, res) => {
  */
 async function updateProjectProgress(projectId) {
   try {
-    const tasks = await prisma.task.findMany({
-      where: { projectId },
-    });
+    // Use count() instead of findMany() — fetches zero rows from DB
+    const [totalTasks, completedTasks] = await Promise.all([
+      prisma.task.count({ where: { projectId } }),
+      prisma.task.count({ where: { projectId, status: 'DONE' } }),
+    ]);
 
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter((t) => t.status === 'DONE').length;
     const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
     await prisma.project.update({
@@ -544,4 +545,3 @@ async function updateProjectProgress(projectId) {
 }
 
 export default router;
-

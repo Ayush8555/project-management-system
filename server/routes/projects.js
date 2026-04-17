@@ -2,6 +2,7 @@ import express from 'express';
 import prisma from '../configs/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { customAlphabet } from 'nanoid';
+import { getCache, setCache, invalidateCache } from '../utils/cache.js';
 const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 12);
 
 const router = express.Router();
@@ -11,6 +12,7 @@ router.use(authenticateToken);
 
 /**
  * GET /api/projects - Get all projects for the logged-in user
+ * OPTIMIZED: Cached per user+workspace+filters, 30s TTL
  */
 router.get('/', async (req, res) => {
   try {
@@ -19,28 +21,32 @@ router.get('/', async (req, res) => {
     const limit = parseInt(req.query.limit) || 9;
     const skip = (page - 1) * limit;
 
+    // Cache key based on user + all filters
+    const cacheKey = `projects:${req.user.id}:${workspaceId || ''}:${page}:${limit}:${search || ''}:${status || ''}:${priority || ''}`;
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
+    // Pre-flight workspaces fetch to flatten project access evaluations
+    const userAccess = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        ownedWorkspaces: { select: { id: true } },
+        workspaces: { select: { workspaceId: true } },
+      }
+    });
+
+    const accessibleWorkspaceIds = [
+      ...(userAccess.ownedWorkspaces?.map(w => w.id) || []),
+      ...(userAccess.workspaces?.map(w => w.workspaceId) || [])
+    ];
+
     const where = {
       AND: [
         {
           OR: [
             { team_lead: req.user.id },
-            {
-              members: {
-                some: { userId: req.user.id },
-              },
-            },
-            {
-              workspace: {
-                OR: [
-                  { ownerId: req.user.id },
-                  {
-                    members: {
-                      some: { userId: req.user.id },
-                    },
-                  },
-                ],
-              },
-            },
+            { members: { some: { userId: req.user.id } } },
+            { workspaceId: { in: accessibleWorkspaceIds } }
           ],
         }
       ]
@@ -97,7 +103,7 @@ router.get('/', async (req, res) => {
 
     const totalPages = Math.ceil(total / limit);
 
-    res.json({ 
+    const result = { 
       projects,
       pagination: {
         total,
@@ -105,7 +111,12 @@ router.get('/', async (req, res) => {
         currentPage: page,
         limit
       }
-    });
+    };
+
+    // Cache for 30 seconds
+    setCache(cacheKey, result, 30);
+
+    res.json(result);
   } catch (error) {
     console.error('Get projects error:', error);
     res.status(500).json({
@@ -117,9 +128,18 @@ router.get('/', async (req, res) => {
 
 /**
  * GET /api/projects/:id - Get a single project by ID
+ * OPTIMIZED: 
+ *   - Removed nested workspace.members include (was fetching every workspace member)
+ *   - Tasks paginated to 50 max, total count provided via _count
+ *   - Cached per user+project, 60s TTL
  */
 router.get('/:id', async (req, res) => {
   try {
+    // Check cache first
+    const cacheKey = `project:${req.params.id}:${req.user.id}`;
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
+
     const project = await prisma.project.findFirst({
       where: {
         id: req.params.id,
@@ -157,29 +177,16 @@ router.get('/:id', async (req, res) => {
             image: true,
           },
         },
+        // OPTIMIZED: Only fetch workspace summary, NOT all workspace members
         workspace: {
-          include: {
-            owner: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-              },
-            },
-            members: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                    image: true,
-                  },
-                },
-              },
-            },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            ownerId: true,
           },
         },
+        // OPTIMIZED: Paginate tasks to 50, provide total via _count
         tasks: {
           include: {
             assignee: {
@@ -199,6 +206,7 @@ router.get('/:id', async (req, res) => {
           orderBy: {
             createdAt: 'desc',
           },
+          take: 50,
         },
         members: {
           include: {
@@ -212,6 +220,12 @@ router.get('/:id', async (req, res) => {
             },
           },
         },
+        _count: {
+          select: {
+            tasks: true,
+            members: true,
+          },
+        },
       },
     });
 
@@ -221,9 +235,10 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    res.json({
-      project,
-    });
+    const result = { project };
+    setCache(cacheKey, result, 60);
+
+    res.json(result);
   } catch (error) {
     console.error('Get project error:', error);
     res.status(500).json({
@@ -364,7 +379,6 @@ router.post('/', async (req, res) => {
               slug: true,
             },
           },
-          tasks: true,
           members: {
             include: {
               user: {
@@ -387,6 +401,11 @@ router.post('/', async (req, res) => {
       });
     });
 
+    // Invalidate related caches
+    invalidateCache('dashboard');
+    invalidateCache('projects');
+    invalidateCache('workspace');
+
     res.status(201).json({
       message: 'Project created successfully',
       project: projectWithRelations,
@@ -394,7 +413,7 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('Create project error:', error);
     res.status(500).json({
-      error: 'Failed to create project',
+      error: error.message || 'Failed to create project',
       message: error.message,
     });
   }
@@ -402,12 +421,14 @@ router.post('/', async (req, res) => {
 
 /**
  * PUT /api/projects/:id - Update a project
+ * OPTIMIZED: Combined update + progress calculation into single transaction
  */
 router.put('/:id', async (req, res) => {
   try {
     const { name, description, status, priority, start_date, end_date, team_lead } = req.body;
 
     // Check if user has permission (team lead or workspace admin/owner)
+    // OPTIMIZED: select only needed fields instead of full project
     const project = await prisma.project.findFirst({
       where: {
         id: req.params.id,
@@ -429,6 +450,14 @@ router.put('/:id', async (req, res) => {
             },
           },
         ],
+      },
+      select: {
+        id: true,
+        status: true,
+        progress: true,
+        start_date: true,
+        end_date: true,
+        workspaceId: true,
       },
     });
 
@@ -455,79 +484,69 @@ router.put('/:id', async (req, res) => {
       if (start && start > now) updateData.status = 'UPCOMING';
       else if (end && end < now) updateData.status = 'COMPLETED';
       else if (start && start <= now && end && end >= now) updateData.status = 'IN_PROGRESS';
-      else if (!updateData.status) updateData.status = project.status; // Keep existing if not determined
+      else if (!updateData.status) updateData.status = project.status;
     } else if (status) {
-        // Allow manual status update if dates are not changed, or if user explicitly sets it (though requirements say auto)
-        // But if dates are NOT provided in update, we might want to allow status update.
-        // However, requirements say "This should work automatically without user selecting the status manually."
-        // I will assume if dates are provided, we recalculate. If only status is provided, we allow it?
-        // Let's stick to auto-calculation if dates are involved.
         updateData.status = status;
     }
 
-    const updatedProject = await prisma.project.update({
-      where: { id: req.params.id },
-      data: updateData,
-      include: {
-        owner: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            image: true,
+    // OPTIMIZED: Single transaction for update + progress calculation (was 3 separate queries)
+    const updatedProject = await prisma.$transaction(async (tx) => {
+      // Count tasks for progress in parallel
+      const [totalTasks, completedTasks] = await Promise.all([
+        tx.task.count({ where: { projectId: req.params.id } }),
+        tx.task.count({ where: { projectId: req.params.id, status: 'DONE' } }),
+      ]);
+      const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      updateData.progress = progress;
+
+      // Single update with progress included
+      return await tx.project.update({
+        where: { id: req.params.id },
+        data: updateData,
+        include: {
+          owner: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              image: true,
+            },
           },
-        },
-        workspace: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
+          workspace: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+            },
           },
-        },
-        tasks: {
-          include: {
-            assignee: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
+          members: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  image: true,
+                },
               },
             },
           },
-        },
-        members: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                image: true,
-              },
-            },
+          _count: {
+            select: { tasks: true, members: true },
           },
         },
-      },
+      });
     });
 
-    // Calculate progress
-    const totalTasks = updatedProject.tasks.length;
-    const completedTasks = updatedProject.tasks.filter((t) => t.status === 'DONE').length;
-    const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
-    // Update progress in database
-    await prisma.project.update({
-      where: { id: req.params.id },
-      data: { progress },
-    });
+    // Invalidate related caches
+    invalidateCache('dashboard');
+    invalidateCache('workspace');
+    invalidateCache('project');
+    invalidateCache('projects');
 
     res.json({
       message: 'Project updated successfully',
-      project: {
-        ...updatedProject,
-        progress,
-      },
+      project: updatedProject,
     });
   } catch (error) {
     console.error('Update project error:', error);
@@ -566,6 +585,7 @@ router.delete('/:id', async (req, res) => {
           },
         ],
       },
+      select: { id: true },
     });
 
     if (!project) {
@@ -577,6 +597,12 @@ router.delete('/:id', async (req, res) => {
     await prisma.project.delete({
       where: { id: req.params.id },
     });
+
+    // Invalidate related caches
+    invalidateCache('dashboard');
+    invalidateCache('project');
+    invalidateCache('projects');
+    invalidateCache('workspace');
 
     res.json({
       message: 'Project deleted successfully',
@@ -626,6 +652,7 @@ router.post('/:id/members', async (req, res) => {
           },
         ],
       },
+      select: { id: true },
     });
 
     if (!project) {
@@ -663,6 +690,9 @@ router.post('/:id/members', async (req, res) => {
         },
       },
     });
+
+    // Invalidate caches
+    invalidateCache(`project:${req.params.id}`);
 
     res.json({
       message: 'Members added successfully',
@@ -705,6 +735,7 @@ router.delete('/:id/members/:memberId', async (req, res) => {
           },
         ],
       },
+      select: { id: true, team_lead: true },
     });
 
     if (!project) {
@@ -727,6 +758,9 @@ router.delete('/:id/members/:memberId', async (req, res) => {
       },
     });
 
+    // Invalidate caches
+    invalidateCache(`project:${req.params.id}`);
+
     res.json({
       message: 'Member removed successfully',
     });
@@ -740,4 +774,3 @@ router.delete('/:id/members/:memberId', async (req, res) => {
 });
 
 export default router;
-

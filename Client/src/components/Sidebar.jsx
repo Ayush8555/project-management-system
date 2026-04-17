@@ -4,13 +4,17 @@ import MyTasksSidebar from './MyTasksSidebar'
 import ProjectSidebar from './ProjectsSidebar'
 import WorkspaceDropdown from './WorkspaceDropdown'
 import { FolderOpenIcon, LayoutDashboardIcon, SettingsIcon, UsersIcon } from 'lucide-react'
+import { preload } from 'swr';
+import fetcher from '../utils/fetcher';
+import { useSelector } from 'react-redux';
 
 const Sidebar = ({ isSidebarOpen, setIsSidebarOpen }) => {
+    const { currentWorkspace } = useSelector((state) => state.workspace);
 
     const menuItems = [
-        { name: 'Dashboard', href: '/', icon: LayoutDashboardIcon },
-        { name: 'Projects', href: '/projects', icon: FolderOpenIcon },
-        { name: 'Team', href: '/team', icon: UsersIcon },
+        { name: 'Dashboard', href: '/', icon: LayoutDashboardIcon, endpoint: (wId) => `/api/dashboard?workspaceId=${wId}` },
+        { name: 'Projects', href: '/projects', icon: FolderOpenIcon, endpoint: (wId) => `/api/projects?workspaceId=${wId}&page=1&limit=9&search=&status=ALL&priority=ALL` },
+        { name: 'Team', href: '/team', icon: UsersIcon, endpoint: (wId) => `/api/users?workspaceId=${wId}` },
     ]
 
     const sidebarRef = useRef(null);
@@ -25,6 +29,12 @@ const Sidebar = ({ isSidebarOpen, setIsSidebarOpen }) => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, [setIsSidebarOpen]);
 
+    const handlePrefetch = (item) => {
+        if (currentWorkspace?.id && item.endpoint) {
+            preload(item.endpoint(currentWorkspace.id), fetcher);
+        }
+    };
+
     return (
         <div ref={sidebarRef} className={`z-10 bg-white dark:bg-zinc-900 min-w-68 flex flex-col h-screen border-r border-gray-200 dark:border-zinc-800 max-sm:absolute transition-all ${isSidebarOpen ? 'left-0' : '-left-full'} `} >
             <WorkspaceDropdown />
@@ -33,7 +43,13 @@ const Sidebar = ({ isSidebarOpen, setIsSidebarOpen }) => {
                 <div>
                     <div className='p-4'>
                         {menuItems.map((item) => (
-                            <NavLink to={item.href} key={item.name} className={({ isActive }) => `flex items-center gap-3 py-2 px-4 text-gray-800 dark:text-zinc-100 cursor-pointer rounded transition-all  ${isActive ? 'bg-gray-100 dark:bg-zinc-900 dark:bg-gradient-to-br dark:from-zinc-800 dark:to-zinc-800/50  dark:ring-zinc-800' : 'hover:bg-gray-50 dark:hover:bg-zinc-800/60'}`} >
+                            <NavLink 
+                                to={item.href} 
+                                key={item.name} 
+                                onMouseEnter={() => handlePrefetch(item)}
+                                onFocus={() => handlePrefetch(item)}
+                                className={({ isActive }) => `flex items-center gap-3 py-2 px-4 text-gray-800 dark:text-zinc-100 cursor-pointer rounded transition-all  ${isActive ? 'bg-gray-100 dark:bg-zinc-900 dark:bg-gradient-to-br dark:from-zinc-800 dark:to-zinc-800/50  dark:ring-zinc-800' : 'hover:bg-gray-50 dark:hover:bg-zinc-800/60'}`} 
+                            >
                                 <item.icon size={16} />
                                 <p className='text-sm truncate'>{item.name}</p>
                             </NavLink>

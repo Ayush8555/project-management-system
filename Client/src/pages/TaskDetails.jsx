@@ -22,17 +22,6 @@ const TaskDetails = () => {
     const [loading, setLoading] = useState(true);
     const [isEditOpen, setIsEditOpen] = useState(false);
 
-    const fetchComments = async () => {
-        if (!taskId) return;
-
-        try {
-            const response = await apiClient.getComments(taskId);
-            setComments(response.comments || []);
-        } catch (error) {
-            console.error('Failed to fetch comments:', error);
-        }
-    };
-
     const fetchTaskDetails = async () => {
         setLoading(true);
         if (!taskId) {
@@ -41,20 +30,22 @@ const TaskDetails = () => {
         }
 
         try {
+            // Fetch task first (need projectId for project fetch)
             const taskResponse = await apiClient.getTask(taskId);
             setTask(taskResponse.task);
             
-            // Fetch project if projectId is available
-            if (taskResponse.task.projectId) {
-                try {
-                    const projectResponse = await apiClient.getProject(taskResponse.task.projectId);
-                    setProject(projectResponse.project);
-                } catch (error) {
-                    console.error('Failed to fetch project:', error);
-                }
-            }
+            // Then fetch project and comments in parallel
+            const [projectResponse, commentsResponse] = await Promise.all([
+                taskResponse.task.projectId
+                    ? apiClient.getProject(taskResponse.task.projectId).catch((err) => { console.error(err); return null; })
+                    : Promise.resolve(null),
+                apiClient.getComments(taskId).catch((err) => { console.error(err); return { comments: [] }; })
+            ]);
+
+            if (projectResponse) setProject(projectResponse.project);
+            setComments(commentsResponse.comments || []);
         } catch (error) {
-            console.error('Failed to fetch task:', error);
+            console.error('Failed to fetch task details:', error);
             toast.error('Failed to load task details');
         } finally {
             setLoading(false);
@@ -90,12 +81,6 @@ const TaskDetails = () => {
 
     useEffect(() => { 
         fetchTaskDetails(); 
-    }, [taskId]);
-
-    useEffect(() => {
-        if (taskId) {
-            fetchComments();
-        }
     }, [taskId]);
 
     if (loading) return <div className="text-gray-500 dark:text-zinc-400 px-4 py-6">Loading task details...</div>;

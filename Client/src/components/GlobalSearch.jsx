@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { SearchIcon, X, Loader2, FolderIcon, CheckSquareIcon, UserIcon, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../utils/api';
@@ -47,11 +47,11 @@ export default function GlobalSearch() {
         };
     }, []);
 
-    const handleNavigate = (path) => {
+    const handleNavigate = useCallback((path) => {
         setIsOpen(false);
         setQuery('');
         navigate(path);
-    };
+    }, [navigate]);
 
     const hasResults = results && (results.projects?.length > 0 || results.tasks?.length > 0 || results.members?.length > 0);
 

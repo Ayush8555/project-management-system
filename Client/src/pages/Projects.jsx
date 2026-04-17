@@ -5,15 +5,14 @@ import { useAuth } from "../contexts/AuthContext";
 import ProjectCard from "../components/ProjectCard";
 import CreateProjectDialog from "../components/CreateProjectDialog";
 import { fetchWorkspace } from "../features/workspaceSlice";
-import apiClient from "../utils/api.js";
+import { ProjectCardSkeleton } from "../components/Skeletons";
+import useSWR from "swr";
+import fetcher from "../utils/fetcher";
 
 export default function Projects() {
     const dispatch = useDispatch();
     const { currentWorkspace } = useSelector((state) => state.workspace);
     const { isAuthenticated, loading: authLoading } = useAuth();
-    const [projects, setProjects] = useState([]);
-    const [pagination, setPagination] = useState(null);
-    const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -22,7 +21,6 @@ export default function Projects() {
         status: "ALL",
         priority: "ALL",
     });
-    const hasLoadedRef = useRef(null);
     const prevDialogOpenRef = useRef(false);
 
     // Debounce search input
@@ -39,85 +37,38 @@ export default function Projects() {
         setCurrentPage(1);
     }, [filters.status, filters.priority]);
 
-    // Fetch projects from API - only once when workspace changes
+    const shouldFetch = isAuthenticated && !authLoading && currentWorkspace?.id;
+    
+    // Construct query path
+    const queryParams = new URLSearchParams({
+        workspaceId: currentWorkspace?.id || '',
+        page: currentPage,
+        limit: 9,
+        search: debouncedSearchTerm,
+        status: filters.status,
+        priority: filters.priority
+    }).toString();
+
+    // SWR takes over caching, deduplication, and fetching
+    const { data: response, isLoading, mutate } = useSWR(
+        shouldFetch ? `/api/projects?${queryParams}` : null,
+        fetcher,
+        {
+            revalidateOnFocus: false,
+            keepPreviousData: true, // Prevents layout shift while paginating/searching
+        }
+    );
+
+    const projects = response?.projects || [];
+    const pagination = response?.pagination || null;
+
+    // Refresh projects after creating new one
     useEffect(() => {
-        const loadProjects = async () => {
-            // Wait for auth to be ready
-            if (authLoading || !isAuthenticated) {
-                setLoading(false);
-                return;
-            }
-
-            if (!currentWorkspace?.id) {
-                setLoading(false);
-                return;
-            }
-
-            // Check for token
-            const token = apiClient.getAccessToken();
-            if (!token) {
-                setLoading(false);
-                return;
-            }
-
-            // Create a compound key to prevent duplicate loads for the same state
-            const stateKey = `${currentWorkspace.id}-${currentPage}-${debouncedSearchTerm}-${filters.status}-${filters.priority}`;
-            if (hasLoadedRef.current === stateKey) {
-                return;
-            }
-
-            setLoading(true);
-            try {
-                const response = await apiClient.getProjects(
-                    currentWorkspace.id,
-                    currentPage,
-                    9, // Limit
-                    debouncedSearchTerm,
-                    filters.status,
-                    filters.priority
-                );
-                setProjects(response.projects || []);
-                setPagination(response.pagination || null);
-                hasLoadedRef.current = stateKey;
-            } catch (error) {
-                console.error('Failed to fetch projects:', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadProjects();
-    }, [currentWorkspace?.id, isAuthenticated, authLoading, currentPage, debouncedSearchTerm, filters.status, filters.priority]);
-
-    // Refresh projects after creating new one - only when dialog closes
-    useEffect(() => {
-        // Only refresh if dialog was open and now closed
-        if (prevDialogOpenRef.current && !isDialogOpen && currentWorkspace?.id && isAuthenticated) {
-            const token = apiClient.getAccessToken();
-            if (!token) return;
-
-            const refreshProjects = async () => {
-                try {
-                    const response = await apiClient.getProjects(
-                        currentWorkspace.id,
-                        currentPage,
-                        9,
-                        debouncedSearchTerm,
-                        filters.status,
-                        filters.priority
-                    );
-                    setProjects(response.projects || []);
-                    setPagination(response.pagination || null);
-                    // Reset ref to allow future loads
-                    hasLoadedRef.current = null;
-                } catch (error) {
-                    console.error('Failed to refresh projects:', error);
-                }
-            };
-            refreshProjects();
+        if (prevDialogOpenRef.current && !isDialogOpen && shouldFetch) {
+            mutate();
         }
         prevDialogOpenRef.current = isDialogOpen;
-    }, [isDialogOpen, currentWorkspace?.id, isAuthenticated, currentPage, debouncedSearchTerm, filters]);
+    }, [isDialogOpen, shouldFetch, mutate]);
 
     return (
         <div className="space-y-6 max-w-6xl mx-auto">
@@ -156,12 +107,11 @@ export default function Projects() {
             </div>
 
             {/* Projects Grid */}
-            {loading ? (
-                <div className="text-center py-16">
-                    <div className="w-24 h-24 mx-auto mb-6 bg-gray-200 dark:bg-zinc-800 rounded-full flex items-center justify-center">
-                        <FolderOpen className="w-12 h-12 text-gray-400 dark:text-zinc-500 animate-pulse" />
-                    </div>
-                    <p className="text-gray-500 dark:text-zinc-400">Loading projects...</p>
+            {isLoading && projects.length === 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {[...Array(6)].map((_, i) => (
+                        <div key={i} className="h-48"><ProjectCardSkeleton /></div>
+                    ))}
                 </div>
             ) : (
                 <>
@@ -216,3 +166,4 @@ export default function Projects() {
         </div>
     );
 }
+
