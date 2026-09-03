@@ -1,10 +1,12 @@
 import express from "express";
+import http from "http";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import prisma from "./configs/prisma.js";
+import { setupSocket } from "./socket.js";
 import authRoutes from "./routes/auth.js";
 import workspaceRoutes from "./routes/workspaces.js";
 import projectRoutes from "./routes/projects.js";
@@ -17,6 +19,12 @@ import dashboardRoutes from "./routes/dashboard.js";
 dotenv.config();
 
 const app = express();
+
+// Create HTTP server (needed for Socket.io to share the same port)
+const httpServer = http.createServer(app);
+
+// Setup Socket.io on the HTTP server
+setupSocket(httpServer);
 
 // Trust proxy — required for rate limiting behind Render/Vercel reverse proxy
 app.set('trust proxy', 1);
@@ -138,8 +146,10 @@ const PORT = process.env.PORT || 5009;
 // Pre-warm the Prisma connection pool on startup
 prisma.$connect().then(() => {
   console.log('✅ Database connection pool established');
-  app.listen(PORT, () => {
+  // Use httpServer.listen instead of app.listen (Socket.io needs the http server)
+  httpServer.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🔌 Socket.io ready for real-time connections`);
     console.log(`📍 API endpoints:`);
     console.log(`   - Auth: http://localhost:${PORT}/api/auth`);
     console.log(`   - Workspaces: http://localhost:${PORT}/api/workspaces`);
@@ -154,3 +164,4 @@ prisma.$connect().then(() => {
 });
 
 export default app;
+

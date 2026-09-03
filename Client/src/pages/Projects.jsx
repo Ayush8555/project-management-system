@@ -12,7 +12,12 @@ import fetcher from "../utils/fetcher";
 export default function Projects() {
     const dispatch = useDispatch();
     const { currentWorkspace } = useSelector((state) => state.workspace);
-    const { isAuthenticated, loading: authLoading } = useAuth();
+    const { isAuthenticated, loading: authLoading, user } = useAuth();
+    
+    // RBAC: Check if user is Workspace Owner or Admin
+    const isOwner = currentWorkspace?.ownerId === user?.id;
+    const isAdmin = currentWorkspace?.members?.some(m => m.userId === user?.id && m.role === 'ADMIN');
+    const canCreateProject = isOwner || isAdmin;
     const [searchTerm, setSearchTerm] = useState("");
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
     const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -78,9 +83,11 @@ export default function Projects() {
                     <h1 className="text-xl sm:text-2xl font-semibold text-gray-900 dark:text-white mb-1"> Projects </h1>
                     <p className="text-gray-500 dark:text-zinc-400 text-sm"> Manage and track your projects </p>
                 </div>
-                <button onClick={() => setIsDialogOpen(true)} className="flex items-center px-5 py-2 text-sm rounded bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:opacity-90 transition" >
-                    <Plus className="size-4 mr-2" /> New Project
-                </button>
+                {canCreateProject && (
+                    <button onClick={() => setIsDialogOpen(true)} className="flex items-center px-5 py-2 text-sm rounded bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:opacity-90 transition" >
+                        <Plus className="size-4 mr-2" /> New Project
+                    </button>
+                )}
                 <CreateProjectDialog isDialogOpen={isDialogOpen} setIsDialogOpen={setIsDialogOpen} />
             </div>
 
@@ -125,12 +132,14 @@ export default function Projects() {
                                     No projects found
                                 </h3>
                                 <p className="text-gray-500 dark:text-zinc-400 mb-6 text-sm">
-                                    Try adjusting your search or filters, or create your first project to get started
+                                    Try adjusting your search or filters{canCreateProject ? ', or create your first project to get started' : ''}
                                 </p>
-                                <button onClick={() => setIsDialogOpen(true)} className="flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded mx-auto text-sm" >
-                                    <Plus className="size-4" />
-                                    Create Project
-                                </button>
+                                {canCreateProject && (
+                                    <button onClick={() => setIsDialogOpen(true)} className="flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded mx-auto text-sm" >
+                                        <Plus className="size-4" />
+                                        Create Project
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             projects.map((project) => (

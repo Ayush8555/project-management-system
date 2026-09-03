@@ -191,41 +191,32 @@ const CreateProjectDialog = ({ isDialogOpen, setIsDialogOpen }) => {
 
                     {/* Team Members */}
                     <div>
-                        <label className="block text-sm mb-1">Team Members</label>
-                        <select 
-                            className="w-full px-3 py-2 rounded dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 mt-1 text-zinc-900 dark:text-zinc-200 text-sm"
-                            onChange={(e) => {
-                                if (e.target.value && !formData.memberIds.includes(e.target.value) && e.target.value !== formData.team_lead) {
-                                    setFormData((prev) => ({ ...prev, memberIds: [...prev.memberIds, e.target.value] }));
-                                }
-                                e.target.value = ""; // Reset select
-                            }}
-                        >
-                            <option value="">Add team members</option>
-                            {availableUsers
-                                .filter((user) => !formData.memberIds.includes(user.id) && user.id !== formData.team_lead)
-                                .map((user) => (
-                                    <option key={user.id} value={user.id}>
-                                        {user.name} ({user.email})
-                                    </option>
-                                ))}
-                        </select>
-
-                        {formData.memberIds.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                                {formData.memberIds.map((userId) => {
-                                    const user = availableUsers.find(u => u.id === userId);
-                                    return user ? (
-                                        <div key={userId} className="flex items-center gap-1 bg-blue-200/50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 px-2 py-1 rounded-md text-sm" >
-                                            {user.name}
-                                            <button type="button" onClick={() => removeTeamMember(userId)} className="ml-1 hover:bg-blue-300/30 dark:hover:bg-blue-500/30 rounded" >
-                                                <XIcon className="w-3 h-3" />
-                                            </button>
-                                        </div>
-                                    ) : null;
-                                })}
-                            </div>
-                        )}
+                        <label className="block text-sm mb-2">Team Members</label>
+                        <div className="max-h-40 overflow-y-auto border border-zinc-300 dark:border-zinc-700 rounded p-2 space-y-2 dark:bg-zinc-900">
+                            {availableUsers.filter(user => user.id !== formData.team_lead).length === 0 ? (
+                                <p className="text-sm text-zinc-500 dark:text-zinc-400">No other members available in this workspace.</p>
+                            ) : (
+                                availableUsers
+                                    .filter((user) => user.id !== formData.team_lead)
+                                    .map((user) => (
+                                        <label key={user.id} className="flex items-center space-x-2 text-sm cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                                                checked={formData.memberIds.includes(user.id)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setFormData(prev => ({ ...prev, memberIds: [...prev.memberIds, user.id] }));
+                                                    } else {
+                                                        removeTeamMember(user.id);
+                                                    }
+                                                }}
+                                            />
+                                            <span className="text-zinc-700 dark:text-zinc-300">{user.name} ({user.email})</span>
+                                        </label>
+                                    ))
+                            )}
+                        </div>
                     </div>
 
                     {/* Footer */}

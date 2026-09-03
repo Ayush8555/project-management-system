@@ -283,6 +283,7 @@ router.post('/', async (req, res) => {
             members: {
               some: {
                 userId: req.user.id,
+                role: 'ADMIN',
               },
             },
           },
@@ -399,6 +400,8 @@ router.post('/', async (req, res) => {
           },
         },
       });
+    }, {
+      timeout: 20000
     });
 
     // Invalidate related caches
@@ -536,6 +539,8 @@ router.put('/:id', async (req, res) => {
           },
         },
       });
+    }, {
+      timeout: 20000
     });
 
     // Invalidate related caches

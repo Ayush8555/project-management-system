@@ -17,13 +17,18 @@ export const generateAccessToken = (payload) => {
   });
 };
 
+import { customAlphabet } from 'nanoid';
+const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 12);
+
 /**
  * Generate refresh token (long-lived)
  */
 export const generateRefreshToken = (payload) => {
-  return jwt.sign(payload, JWT_REFRESH_SECRET, {
-    expiresIn: REFRESH_TOKEN_EXPIRY,
-  });
+  return jwt.sign(
+    { ...payload, jti: nanoid() }, // Ensure token is always unique
+    JWT_REFRESH_SECRET,
+    { expiresIn: REFRESH_TOKEN_EXPIRY }
+  );
 };
 
 /**

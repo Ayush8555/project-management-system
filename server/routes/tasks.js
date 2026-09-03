@@ -3,6 +3,7 @@ import prisma from '../configs/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { customAlphabet } from 'nanoid';
 import { getCache, setCache, invalidateCache } from '../utils/cache.js';
+import { getIO } from '../socket.js';
 const nanoid = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', 12);
 
 const router = express.Router();
@@ -122,6 +123,20 @@ router.get('/', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
+    // Pre-flight workspaces fetch for faster auth check
+    const userAccess = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        ownedWorkspaces: { select: { id: true } },
+        workspaces: { select: { workspaceId: true } },
+      }
+    });
+
+    const accessibleWorkspaceIds = [
+      ...(userAccess.ownedWorkspaces?.map(w => w.id) || []),
+      ...(userAccess.workspaces?.map(w => w.workspaceId) || [])
+    ];
+
     const task = await prisma.task.findFirst({
       where: {
         id: req.params.id,
@@ -131,27 +146,8 @@ router.get('/:id', async (req, res) => {
             project: {
               OR: [
                 { team_lead: req.user.id },
-                {
-                  members: {
-                    some: {
-                      userId: req.user.id,
-                    },
-                  },
-                },
-                {
-                  workspace: {
-                    OR: [
-                      { ownerId: req.user.id },
-                      {
-                        members: {
-                          some: {
-                            userId: req.user.id,
-                          },
-                        },
-                      },
-                    ],
-                  },
-                },
+                { members: { some: { userId: req.user.id } } },
+                { workspaceId: { in: accessibleWorkspaceIds } }
               ],
             },
           },
@@ -250,13 +246,6 @@ router.post('/', async (req, res) => {
         OR: [
           { team_lead: req.user.id },
           {
-            members: {
-              some: {
-                userId: req.user.id,
-              },
-            },
-          },
-          {
             workspace: {
               OR: [
                 { ownerId: req.user.id },
@@ -264,6 +253,7 @@ router.post('/', async (req, res) => {
                   members: {
                     some: {
                       userId: req.user.id,
+                      role: 'ADMIN',
                     },
                   },
                 },
@@ -329,6 +319,12 @@ router.post('/', async (req, res) => {
       message: 'Task created successfully',
       task,
     });
+
+    // Emit real-time event to all users viewing this project
+    const io = getIO();
+    if (io) {
+      io.to(`project:${projectId}`).emit('task:created', task);
+    }
   } catch (error) {
     console.error('Create task error:', error);
     res.status(500).json({
@@ -348,7 +344,21 @@ router.put('/:id', async (req, res) => {
   try {
     const { title, description, status, type, priority, assigneeId, due_date } = req.body;
 
-    // OPTIMIZED: select only projectId for permission check (was: include: { project: true })
+    // Pre-flight workspaces fetch for faster auth check
+    const userAccess = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        ownedWorkspaces: { select: { id: true } },
+        workspaces: { select: { workspaceId: true, role: true } },
+      }
+    });
+
+    const adminWorkspaceIds = [
+      ...(userAccess.ownedWorkspaces?.map(w => w.id) || []),
+      ...(userAccess.workspaces?.filter(w => w.role === 'ADMIN').map(w => w.workspaceId) || [])
+    ];
+
+    // OPTIMIZED: fetch enough data to determine user's exact permissions
     const task = await prisma.task.findFirst({
       where: {
         id: req.params.id,
@@ -358,21 +368,7 @@ router.put('/:id', async (req, res) => {
             project: {
               OR: [
                 { team_lead: req.user.id },
-                {
-                  workspace: {
-                    OR: [
-                      { ownerId: req.user.id },
-                      {
-                        members: {
-                          some: {
-                            userId: req.user.id,
-                            role: 'ADMIN',
-                          },
-                        },
-                      },
-                    ],
-                  },
-                },
+                { workspaceId: { in: adminWorkspaceIds } }
               ],
             },
           },
@@ -381,6 +377,20 @@ router.put('/:id', async (req, res) => {
       select: {
         id: true,
         projectId: true,
+        assigneeId: true,
+        project: {
+          select: {
+            team_lead: true,
+            workspace: {
+              select: {
+                ownerId: true,
+                members: {
+                  where: { userId: req.user.id }
+                }
+              }
+            }
+          }
+        }
       },
     });
 
@@ -390,14 +400,31 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+    const isTeamLead = task.project.team_lead === req.user.id;
+    const isOwner = task.project.workspace.ownerId === req.user.id;
+    const isAdmin = task.project.workspace.members.some(m => m.role === 'ADMIN');
+    const isPrivileged = isTeamLead || isOwner || isAdmin;
+
+    // RBAC Check: Regular assignee can only update status
+    if (!isPrivileged) {
+      if (title || description !== undefined || type || priority || (assigneeId && assigneeId !== task.assigneeId) || due_date) {
+        return res.status(403).json({
+          error: 'Regular members can only update task status. Contact a Team Lead or Admin to edit task details.',
+        });
+      }
+    }
+
     const updateData = {};
-    if (title) updateData.title = title.trim();
-    if (description !== undefined) updateData.description = description?.trim() || null;
+    if (isPrivileged) {
+      if (title) updateData.title = title.trim();
+      if (description !== undefined) updateData.description = description?.trim() || null;
+      if (type) updateData.type = type;
+      if (priority) updateData.priority = priority;
+      if (assigneeId !== undefined) updateData.assigneeId = assigneeId;
+      if (due_date) updateData.due_date = new Date(due_date);
+    }
+    // Everyone (including assignee) can update status
     if (status) updateData.status = status;
-    if (type) updateData.type = type;
-    if (priority) updateData.priority = priority;
-    if (assigneeId) updateData.assigneeId = assigneeId;
-    if (due_date) updateData.due_date = new Date(due_date);
 
     // OPTIMIZED: Don't include full comments array — just return task data + _count
     const updatedTask = await prisma.task.update({
@@ -440,6 +467,12 @@ router.put('/:id', async (req, res) => {
       message: 'Task updated successfully',
       task: updatedTask,
     });
+
+    // Emit real-time event to all users viewing this project
+    const io = getIO();
+    if (io) {
+      io.to(`project:${updatedTask.projectId}`).emit('task:updated', updatedTask);
+    }
   } catch (error) {
     console.error('Update task error:', error);
     res.status(500).json({
@@ -455,6 +488,20 @@ router.put('/:id', async (req, res) => {
  */
 router.delete('/:id', async (req, res) => {
   try {
+    // Pre-flight workspaces fetch for faster auth check
+    const userAccess = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        ownedWorkspaces: { select: { id: true } },
+        workspaces: { select: { workspaceId: true, role: true } },
+      }
+    });
+
+    const adminWorkspaceIds = [
+      ...(userAccess.ownedWorkspaces?.map(w => w.id) || []),
+      ...(userAccess.workspaces?.filter(w => w.role === 'ADMIN').map(w => w.workspaceId) || [])
+    ];
+
     // OPTIMIZED: select only projectId (was: include: { project: true })
     const task = await prisma.task.findFirst({
       where: {
@@ -464,21 +511,7 @@ router.delete('/:id', async (req, res) => {
             project: {
               OR: [
                 { team_lead: req.user.id },
-                {
-                  workspace: {
-                    ownerId: req.user.id,
-                  },
-                },
-                {
-                  workspace: {
-                    members: {
-                      some: {
-                        userId: req.user.id,
-                        role: 'ADMIN',
-                      },
-                    },
-                  },
-                },
+                { workspaceId: { in: adminWorkspaceIds } }
               ],
             },
           },

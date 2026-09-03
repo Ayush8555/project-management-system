@@ -3,6 +3,8 @@ import { UsersIcon, Search, UserPlus, Shield, Activity } from "lucide-react";
 import InviteMemberDialog from "../components/InviteMemberDialog";
 import { useSelector } from "react-redux";
 import apiClient from "../utils/api.js";
+import { getAvatarUrl } from "../utils/helpers";
+import { useAuth } from "../contexts/AuthContext";
 
 const Team = () => {
 
@@ -13,6 +15,11 @@ const Team = () => {
     const [taskCount, setTaskCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const currentWorkspace = useSelector((state) => state?.workspace?.currentWorkspace || null);
+    const { user } = useAuth();
+    
+    // RBAC: Check if user is Workspace Owner or Admin
+    const isAdmin = currentWorkspace?.ownerId === user?.id || 
+                    currentWorkspace?.members?.some(m => m.userId === user?.id && m.role === 'ADMIN');
 
     const filteredUsers = useMemo(() => users.filter(
         (user) =>
@@ -70,9 +77,11 @@ const Team = () => {
                         Manage team members and their contributions
                     </p>
                 </div>
-                <button onClick={() => setIsDialogOpen(true)} className="flex items-center px-5 py-2 rounded text-sm bg-gradient-to-br from-blue-500 to-blue-600 hover:opacity-90 text-white transition" >
-                    <UserPlus className="w-4 h-4 mr-2" /> Invite Member
-                </button>
+                {isAdmin && (
+                    <button onClick={() => setIsDialogOpen(true)} className="flex items-center px-5 py-2 rounded text-sm bg-gradient-to-br from-blue-500 to-blue-600 hover:opacity-90 text-white transition" >
+                        <UserPlus className="w-4 h-4 mr-2" /> Invite Member
+                    </button>
+                )}
                 <InviteMemberDialog isDialogOpen={isDialogOpen} setIsDialogOpen={setIsDialogOpen} />
             </div>
 
@@ -174,11 +183,12 @@ const Team = () => {
                                         >
                                             <td className="px-6 py-2.5 whitespace-nowrap flex items-center gap-3">
                                                 <img
-                                                    src={user.user.image || '/profile_img_a.svg'}
+                                                    src={user.user.image || getAvatarUrl(user.user?.name)}
                                                     alt={user.user.name}
                                                     className="size-7 rounded-full bg-gray-200 dark:bg-zinc-800"
                                                     onError={(e) => {
-                                                        e.target.src = '/profile_img_a.svg';
+                                                        e.target.onerror = null;
+                                                        e.target.src = getAvatarUrl(user.user?.name);
                                                     }}
                                                 />
                                                 <span className="text-sm text-zinc-800 dark:text-white truncate">
@@ -213,11 +223,12 @@ const Team = () => {
                                 >
                                     <div className="flex items-center gap-3 mb-2">
                                         <img
-                                            src={user.user.image || '/profile_img_a.svg'}
+                                            src={user.user.image || getAvatarUrl(user.user?.name)}
                                             alt={user.user.name}
                                             className="size-9 rounded-full bg-gray-200 dark:bg-zinc-800"
                                             onError={(e) => {
-                                                e.target.src = '/profile_img_a.svg';
+                                                e.target.onerror = null;
+                                                e.target.src = getAvatarUrl(user.user?.name);
                                             }}
                                         />
                                         <div>

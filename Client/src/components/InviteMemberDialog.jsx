@@ -9,6 +9,7 @@ const InviteMemberDialog = ({ isDialogOpen, setIsDialogOpen }) => {
     const dispatch = useDispatch();
     const currentWorkspace = useSelector((state) => state.workspace?.currentWorkspace || null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [inviteResult, setInviteResult] = useState(null);
     const [email, setEmail] = useState("");
 
     const handleSubmit = async (e) => {
@@ -26,14 +27,15 @@ const InviteMemberDialog = ({ isDialogOpen, setIsDialogOpen }) => {
 
         setIsSubmitting(true);
         try {
-            await apiClient.inviteWorkspaceMember(currentWorkspace.id, email);
+            const response = await apiClient.inviteWorkspaceMember(currentWorkspace.id, email);
             
             // Refresh workspace
             await dispatch(fetchWorkspace(currentWorkspace.id));
 
-            toast.success('Invitation sent successfully!');
-            setEmail("");
-            setIsDialogOpen(false);
+            setInviteResult({
+                ...response,
+                email: email
+            });
         } catch (error) {
             toast.error(error.message || 'Failed to invite member');
         } finally {
@@ -52,63 +54,107 @@ const InviteMemberDialog = ({ isDialogOpen, setIsDialogOpen }) => {
                         <h2 className="text-xl font-bold flex items-center gap-2">
                             <UserPlus className="size-5 text-zinc-900 dark:text-zinc-200" /> Invite Team Member
                         </h2>
-                        {currentWorkspace && (
+                        {currentWorkspace && !inviteResult && (
                             <p className="text-sm text-zinc-700 dark:text-zinc-400 mt-1">
                                 Inviting to workspace: <span className="text-blue-600 dark:text-blue-400">{currentWorkspace.name}</span>
                             </p>
                         )}
                     </div>
                     <button
-                        onClick={() => setIsDialogOpen(false)}
+                        onClick={() => {
+                            setIsDialogOpen(false);
+                            setTimeout(() => {
+                                setInviteResult(null);
+                                setEmail("");
+                            }, 200);
+                        }}
                         className="text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                     >
                         <X size={20} />
                     </button>
                 </div>
 
-                {/* Form */}
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="space-y-2">
-                        <label htmlFor="email" className="text-sm font-medium text-zinc-900 dark:text-zinc-200">
-                            Email Address
-                        </label>
-                        <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 dark:text-zinc-400 w-4 h-4" />
-                            <input 
-                                type="email" 
-                                value={email} 
-                                onChange={(e) => setEmail(e.target.value)} 
-                                placeholder="Enter email address" 
-                                className="pl-10 mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-200 text-sm placeholder-zinc-400 dark:placeholder-zinc-500 py-2 focus:outline-none focus:border-blue-500" 
-                                autoFocus
-                            />
+                {inviteResult ? (
+                    <div className="space-y-4">
+                        <div className="p-4 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg text-green-800 dark:text-green-300">
+                            {inviteResult.pending ? (
+                                <>
+                                    <h3 className="font-semibold mb-2">Invitation Logged!</h3>
+                                    <p className="text-sm mb-2">
+                                        Since actual emails are disabled in this environment, no real email was sent.
+                                    </p>
+                                    <p className="text-sm font-medium">
+                                        Just ask your teammate to register a new account using the email <strong>{inviteResult.email}</strong>. They will automatically join this workspace upon signup!
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <h3 className="font-semibold mb-2">Member Added!</h3>
+                                    <p className="text-sm">
+                                        <strong>{inviteResult.user?.name || inviteResult.email}</strong> was already registered and has been immediately added to your workspace.
+                                    </p>
+                                </>
+                            )}
                         </div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                            If the user exists, they will be added immediately. Otherwise, an invite will be sent.
-                        </p>
+                        <div className="flex justify-end pt-2">
+                            <button 
+                                onClick={() => {
+                                    setIsDialogOpen(false);
+                                    setTimeout(() => {
+                                        setInviteResult(null);
+                                        setEmail("");
+                                    }, 200);
+                                }} 
+                                className="px-5 py-2 rounded text-sm bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:opacity-90 transition"
+                            >
+                                Done
+                            </button>
+                        </div>
                     </div>
+                ) : (
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="space-y-2">
+                            <label htmlFor="email" className="text-sm font-medium text-zinc-900 dark:text-zinc-200">
+                                Email Address
+                            </label>
+                            <div className="relative">
+                                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 dark:text-zinc-400 w-4 h-4" />
+                                <input 
+                                    type="email" 
+                                    value={email} 
+                                    onChange={(e) => setEmail(e.target.value)} 
+                                    placeholder="Enter email address" 
+                                    className="pl-10 mt-1 w-full rounded border border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-200 text-sm placeholder-zinc-400 dark:placeholder-zinc-500 py-2 focus:outline-none focus:border-blue-500" 
+                                    autoFocus
+                                />
+                            </div>
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                If the user exists, they will be added immediately. Otherwise, an invite will be sent.
+                            </p>
+                        </div>
 
-                    {/* Footer */}
-                    <div className="flex justify-end gap-3 pt-2">
-                        <button 
-                            type="button" 
-                            onClick={() => {
-                                setIsDialogOpen(false);
-                                setEmail("");
-                            }} 
-                            className="px-5 py-2 rounded text-sm border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition" 
-                        >
-                            Cancel
-                        </button>
-                        <button 
-                            type="submit" 
-                            disabled={isSubmitting || !email.trim()} 
-                            className="px-5 py-2 rounded text-sm bg-gradient-to-br from-blue-500 to-blue-600 text-white disabled:opacity-50 hover:opacity-90 transition" 
-                        >
-                            {isSubmitting ? "Sending..." : "Send Invite"}
-                        </button>
-                    </div>
-                </form>
+                        {/* Footer */}
+                        <div className="flex justify-end gap-3 pt-2">
+                            <button 
+                                type="button" 
+                                onClick={() => {
+                                    setIsDialogOpen(false);
+                                    setEmail("");
+                                }} 
+                                className="px-5 py-2 rounded text-sm border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition" 
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="submit" 
+                                disabled={isSubmitting || !email.trim()} 
+                                className="px-5 py-2 rounded text-sm bg-gradient-to-br from-blue-500 to-blue-600 text-white disabled:opacity-50 hover:opacity-90 transition" 
+                            >
+                                {isSubmitting ? "Sending..." : "Send Invite"}
+                            </button>
+                        </div>
+                    </form>
+                )}
             </div>
         </div>
     );

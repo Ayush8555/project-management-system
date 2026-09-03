@@ -1,6 +1,7 @@
 import express from 'express';
 import prisma from '../configs/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { getCache, setCache } from '../utils/cache.js';
 
 const router = express.Router();
 
@@ -14,6 +15,10 @@ router.use(authenticateToken);
 router.get('/', async (req, res) => {
   try {
     const { workspaceId, search } = req.query;
+
+    const cacheKey = `users:${req.user.id}:${workspaceId || 'all'}:${search || ''}`;
+    const cached = getCache(cacheKey);
+    if (cached) return res.json(cached);
 
     let where = {};
 
@@ -49,6 +54,9 @@ router.get('/', async (req, res) => {
       }
 
       const memberIds = workspace.members.map((m) => m.userId);
+      if (!memberIds.includes(workspace.ownerId)) {
+        memberIds.push(workspace.ownerId);
+      }
       where.id = {
         in: memberIds,
       };
@@ -102,13 +110,14 @@ router.get('/', async (req, res) => {
         name: true,
         email: true,
         image: true,
-        createdAt: true,
       },
       orderBy: {
         name: 'asc',
       },
+      take: 50, // Limit to 50 users to prevent massive payloads
     });
 
+    setCache(cacheKey, { users }, 30); // Cache for 30s
     res.json({ users });
   } catch (error) {
     console.error('Get users error:', error);

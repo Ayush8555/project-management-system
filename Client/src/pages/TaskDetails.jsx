@@ -3,9 +3,11 @@ import toast from "react-hot-toast";
 import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { CalendarIcon, MessageCircle, PenIcon, Edit2Icon, ArrowLeftIcon } from "lucide-react";
+import { CalendarIcon, MessageCircle, PenIcon, Edit2Icon, ArrowLeftIcon, Trash2Icon } from "lucide-react";
 import apiClient from "../utils/api.js";
 import EditTaskDialog from "../components/EditTaskDialog";
+import { useSelector } from "react-redux";
+import { getSocket, connectSocket, joinRoom, leaveRoom } from "../utils/socket.js";
 
 const TaskDetails = () => {
 
@@ -15,6 +17,7 @@ const TaskDetails = () => {
     const navigate = useNavigate();
 
     const { user } = useAuth();
+    const { currentWorkspace } = useSelector((state) => state.workspace);
     const [task, setTask] = useState(null);
     const [project, setProject] = useState(null);
     const [comments, setComments] = useState([]);
@@ -30,18 +33,16 @@ const TaskDetails = () => {
         }
 
         try {
-            // Fetch task first (need projectId for project fetch)
-            const taskResponse = await apiClient.getTask(taskId);
-            setTask(taskResponse.task);
-            
-            // Then fetch project and comments in parallel
-            const [projectResponse, commentsResponse] = await Promise.all([
-                taskResponse.task.projectId
-                    ? apiClient.getProject(taskResponse.task.projectId).catch((err) => { console.error(err); return null; })
+            // Fetch everything in parallel since we have both taskId and projectId from the URL
+            const [taskResponse, projectResponse, commentsResponse] = await Promise.all([
+                apiClient.getTask(taskId),
+                projectId 
+                    ? apiClient.getProject(projectId).catch((err) => { console.error(err); return null; }) 
                     : Promise.resolve(null),
                 apiClient.getComments(taskId).catch((err) => { console.error(err); return { comments: [] }; })
             ]);
 
+            setTask(taskResponse.task);
             if (projectResponse) setProject(projectResponse.project);
             setComments(commentsResponse.comments || []);
         } catch (error) {
@@ -79,9 +80,50 @@ const TaskDetails = () => {
         }
     };
 
-    useEffect(() => { 
-        fetchTaskDetails(); 
+    useEffect(() => {
+        fetchTaskDetails();
+        
+        // Real-time comments
+        if (taskId) {
+            const socket = connectSocket();
+            const room = `task:${taskId}`;
+            if (socket) {
+                joinRoom(room);
+                const handleCommentCreated = (newComment) => {
+                    setComments((prev) => {
+                        // Prevent duplicates if we already added it locally
+                        if (prev.some(c => c.id === newComment.id)) return prev;
+                        return [newComment, ...prev];
+                    });
+                };
+                socket.on('comment:created', handleCommentCreated);
+                socket.on('chat:cleared', () => setComments([]));
+                return () => {
+                    socket.off('comment:created', handleCommentCreated);
+                    socket.off('chat:cleared');
+                    leaveRoom(room);
+                };
+            }
+        }
     }, [taskId]);
+
+    // Check if user is admin/owner
+    const isAdmin = currentWorkspace?.ownerId === user?.id || 
+                   currentWorkspace?.members?.some(m => m.userId === user?.id && m.role === 'ADMIN') ||
+                   project?.team_lead === user?.id;
+
+    const handleClearChat = async () => {
+        if (!isAdmin) return;
+        if (!confirm("Are you sure you want to clear this task's chat history for everyone?")) return;
+        
+        try {
+            await apiClient.clearComments(taskId);
+            toast.success("Chat cleared successfully");
+            // The UI clears automatically when the chat:cleared socket event is received
+        } catch (error) {
+            toast.error(error.message || "Failed to clear chat");
+        }
+    };
 
     if (loading) return <div className="text-gray-500 dark:text-zinc-400 px-4 py-6">Loading task details...</div>;
     if (!task) return <div className="text-red-500 px-4 py-6">Task not found.</div>;
@@ -104,9 +146,21 @@ const TaskDetails = () => {
             {/* Left: Comments / Chatbox */}
             <div className="w-full lg:w-2/3">
                 <div className="p-5 rounded-md  border border-gray-300 dark:border-zinc-800  flex flex-col lg:h-[80vh]">
-                    <h2 className="text-base font-semibold flex items-center gap-2 mb-4 text-gray-900 dark:text-white">
-                        <MessageCircle className="size-5" /> Task Discussion ({comments.length})
-                    </h2>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-base font-semibold flex items-center gap-2 text-gray-900 dark:text-white">
+                            <MessageCircle className="size-5" /> Task Discussion ({comments.length})
+                        </h2>
+                        {isAdmin && (
+                            <button
+                                onClick={handleClearChat}
+                                className="flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30"
+                                title="Clear chat history for everyone"
+                            >
+                                <Trash2Icon className="size-3.5" />
+                                Clear Chat
+                            </button>
+                        )}
+                    </div>
 
                     <div className="flex-1 md:overflow-y-scroll no-scrollbar">
                         {comments.length > 0 ? (
@@ -225,6 +279,7 @@ const TaskDetails = () => {
                 isOpen={isEditOpen} 
                 setIsOpen={setIsEditOpen} 
                 task={task} 
+                isAdmin={isAdmin}
                 onUpdate={(updatedTask) => {
                     setTask(updatedTask);
                     // Also refresh task list if needed via context or forced reload, but local state update is good for now

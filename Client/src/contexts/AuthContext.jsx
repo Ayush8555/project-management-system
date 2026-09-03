@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import apiClient from '../utils/api.js';
+import { connectSocket, disconnectSocket } from '../utils/socket.js';
 
 const AuthContext = createContext(null);
 
@@ -26,6 +27,7 @@ export const AuthProvider = ({ children }) => {
       if (response.user) {
         setUser(response.user);
         setIsAuthenticated(true);
+        connectSocket(); // Start real-time connection
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -44,9 +46,9 @@ export const AuthProvider = ({ children }) => {
       if (response.user) {
         setUser(response.user);
         setIsAuthenticated(true);
+        connectSocket(); // Start real-time connection
         return { success: true, user: response.user };
       }
-      return { success: false, error: 'Login failed' };
     } catch (error) {
       return {
         success: false,
@@ -61,9 +63,9 @@ export const AuthProvider = ({ children }) => {
       if (response.user) {
         setUser(response.user);
         setIsAuthenticated(true);
+        connectSocket(); // Start real-time connection
         return { success: true, user: response.user };
       }
-      return { success: false, error: 'Registration failed' };
     } catch (error) {
       return {
         success: false,
@@ -80,6 +82,7 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setUser(null);
       setIsAuthenticated(false);
+      disconnectSocket(); // Close real-time connection
     }
   };
 

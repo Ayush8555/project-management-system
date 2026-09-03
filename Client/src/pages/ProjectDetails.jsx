@@ -3,7 +3,7 @@ import useSWR from "swr";
 import fetcher from "../utils/fetcher";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeftIcon, PlusIcon, SettingsIcon, BarChart3Icon, CalendarIcon, FileStackIcon, ZapIcon, CheckCircle, Trash2, UsersIcon } from "lucide-react";
+import { ArrowLeftIcon, PlusIcon, SettingsIcon, BarChart3Icon, CalendarIcon, FileStackIcon, ZapIcon, CheckCircle, Trash2, UsersIcon, LayoutGridIcon, ListIcon } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import ProjectAnalytics from "../components/ProjectAnalytics";
 import ProjectSettings from "../components/ProjectSettings";
@@ -11,8 +11,10 @@ import CreateTaskDialog from "../components/CreateTaskDialog";
 import ProjectCalendar from "../components/ProjectCalendar";
 import ProjectTasks from "../components/ProjectTasks";
 import ProjectMembers from "../components/ProjectMembers";
+import KanbanBoard from "../components/KanbanBoard";
 import apiClient from "../utils/api.js";
 import { fetchWorkspace } from "../features/workspaceSlice";
+import { getSocket, connectSocket, joinRoom, leaveRoom } from "../utils/socket.js";
 import toast from "react-hot-toast";
 
 export default function ProjectDetail() {
@@ -30,6 +32,7 @@ export default function ProjectDetail() {
     const [showCreateTask, setShowCreateTask] = useState(false);
     const [activeTab, setActiveTab] = useState(tab || "tasks");
     const [isDeleting, setIsDeleting] = useState(false);
+    const [viewMode, setViewMode] = useState("list"); // "list" or "board"
 
     useEffect(() => {
         if (tab) setActiveTab(tab);
@@ -61,6 +64,28 @@ export default function ProjectDetail() {
         }
         prevDialogOpenRef.current = showCreateTask;
     }, [showCreateTask, shouldFetch, mutate]);
+
+    // Real-time: join project room and listen for task events
+    useEffect(() => {
+        if (!id) return;
+
+        const socket = connectSocket();
+        if (!socket) return;
+        
+        const room = `project:${id}`;
+        joinRoom(room);
+
+        // When any user creates or updates a task, refresh our data
+        const handleTaskEvent = () => mutate();
+        socket.on("task:created", handleTaskEvent);
+        socket.on("task:updated", handleTaskEvent);
+
+        return () => {
+            leaveRoom(room);
+            socket.off("task:created", handleTaskEvent);
+            socket.off("task:updated", handleTaskEvent);
+        };
+    }, [id, mutate]);
 
     const handleMarkComplete = useCallback(async () => {
         if (!project?.id) return;
@@ -179,10 +204,12 @@ export default function ProjectDetail() {
                             {isDeleting ? 'Deleting...' : 'Delete'}
                         </button>
                     )}
-                    <button onClick={() => setShowCreateTask(true)} className="flex items-center gap-2 px-5 py-2 text-sm rounded bg-gradient-to-br from-blue-500 to-blue-600 text-white" >
-                        <PlusIcon className="size-4" />
-                        New Task
-                    </button>
+                    {isAdmin && (
+                        <button onClick={() => setShowCreateTask(true)} className="flex items-center gap-2 px-5 py-2 text-sm rounded bg-gradient-to-br from-blue-500 to-blue-600 text-white" >
+                            <PlusIcon className="size-4" />
+                            New Task
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -209,11 +236,12 @@ export default function ProjectDetail() {
                 <div className="inline-flex flex-wrap max-sm:grid grid-cols-3 gap-2 border border-zinc-200 dark:border-zinc-800 rounded overflow-hidden">
                     {[
                         { key: "tasks", label: "Tasks", icon: FileStackIcon },
+                        { key: "board", label: "Board", icon: LayoutGridIcon },
                         { key: "calendar", label: "Calendar", icon: CalendarIcon },
                         { key: "analytics", label: "Analytics", icon: BarChart3Icon },
                         { key: "members", label: "Members", icon: UsersIcon },
                         { key: "settings", label: "Settings", icon: SettingsIcon },
-                    ].map((tabItem) => (
+                    ].filter(t => isAdmin || t.key !== "settings").map((tabItem) => (
                         <button key={tabItem.key} onClick={() => { setActiveTab(tabItem.key); setSearchParams({ id: id, tab: tabItem.key }) }} className={`flex items-center gap-2 px-4 py-2 text-sm transition-all ${activeTab === tabItem.key ? "bg-zinc-100 dark:bg-zinc-800/80" : "hover:bg-zinc-50 dark:hover:bg-zinc-700"}`} >
                             <tabItem.icon className="size-3.5" />
                             {tabItem.label}
@@ -225,6 +253,11 @@ export default function ProjectDetail() {
                     {activeTab === "tasks" && (
                         <div className=" dark:bg-zinc-900/40 rounded max-w-6xl">
                             <ProjectTasks tasks={tasks} onTasksChange={() => mutate()} projectId={id} />
+                        </div>
+                    )}
+                    {activeTab === "board" && (
+                        <div className=" dark:bg-zinc-900/40 rounded max-w-6xl">
+                            <KanbanBoard tasks={tasks} projectId={id} />
                         </div>
                     )}
                     {activeTab === "analytics" && (

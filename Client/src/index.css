@@ -5,6 +5,14 @@
     font-family: 'Outfit', sans-serif;
 }
 
+html, body, #root {
+    @apply transition-colors duration-300 ease-in-out;
+}
+
+*, *::before, *::after {
+    @apply transition-colors duration-300 ease-in-out;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 .no-scrollbar::-webkit-scrollbar {

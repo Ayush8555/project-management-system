@@ -285,6 +285,10 @@ class ApiClient {
     return await this.delete(`/comments/${id}`);
   }
 
+  async clearComments(taskId) {
+    return await this.delete(`/comments/clear/${taskId}`);
+  }
+
   // User methods
   async getUsers(workspaceId = null, search = null) {
     const params = new URLSearchParams();
